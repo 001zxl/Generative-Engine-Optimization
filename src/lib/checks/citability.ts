@@ -9,8 +9,8 @@
  *  3. 纯规则实现，不调用 AI —— 这是免费工具能零成本承接匿名流量的前提。
  */
 import * as cheerio from "cheerio";
-import { fetchPage, normalizeUrl } from "../net/fetch-page";
-import { DISCLAIMER, summarize, type CheckResult, type Finding, type FindingStatus } from "./types";
+import { fetchPage, normalizeUrl } from "../net/fetch-page.ts";
+import { DISCLAIMER, summarize, type CheckResult, type Finding, type FindingStatus } from "./types.ts";
 
 export const CITABILITY_VERSION = "0.1.0";
 
@@ -21,6 +21,38 @@ const HYPE_WORDS = [
   "行业第一", "国内首家", "独家", "零风险", "包治", "稳赚",
   "best-in-class", "world's leading", "world leading", "guaranteed", "number one", "#1", "unbeatable", "perfect",
 ];
+
+/**
+ * 页脚/导航/法务类样板文。它们长度往往恰好落在「可摘录摘要」的候选区间
+ * （60–300 字符），会被启发式误判成可引用段落。
+ *
+ * 这个函数是被真实站点验证出来的：pailian-aluminium.com 的首页唯一被判定为
+ * 「可整段摘录的摘要」的段落，是页脚的 "Copyright © ... All rights reserved."，
+ * 该项拿了满分 100 —— 一个明显错误的满分。
+ */
+const BOILERPLATE_PATTERNS = [
+  /all rights reserved/i,
+  /copyright\s*©?/i,
+  /©\s*\d{4}/,
+  /\bcookie(s)?\b/i,
+  /privacy\s+policy/i,
+  /terms\s+(of\s+)?(service|use)/i,
+  /subscribe|newsletter|follow\s+us|contact\s+us\s+at/i,
+  /sitemap|breadcrumb|skip\s+to\s+(main|content)/i,
+  /版权|版权所有|隐私政策|服务条款|使用条款|免责声明/,
+  /关注我们|订阅|扫码|微信公众号|备案号|ICP\s*备/,
+];
+
+export function isBoilerplateParagraph(text: string): boolean {
+  const t = text.trim();
+  if (t.length === 0) return true;
+  // 样板文通常几乎不含句末标点，且高度模板化
+  const hasSentenceEnd = /[。．.！!？?；;]/.test(t);
+  if (BOILERPLATE_PATTERNS.some((re) => re.test(t))) return true;
+  // 没有句末标点、又很短，基本不是可引用的完整陈述
+  if (!hasSentenceEnd && t.length < 120) return true;
+  return false;
+}
 
 const UNIT_PATTERN =
   /(\d+(?:[.,]\d+)?)\s*(%|％|个百分点|倍|件|台|套|吨|公斤|千克|克|毫米|厘米|米|毫米|mm|cm|kw|w|v|a|℃|度|天|小时|分钟|秒|年|个月|月|周|日|人|家|个|次|起|例|万元|亿元|元|美元|美金|usd|rmb|cny|eur)/gi;
@@ -420,8 +452,11 @@ export async function runCitabilityCheck(input: CitabilityInput): Promise<CheckR
 
   /* ---------- 8. 可摘录摘要 ---------- */
   const entity = (h1 || heading).replace(/[｜|\-—–].*$/, "").trim();
+  const citableParas = paras.filter((p) => !isBoilerplateParagraph(p));
+  const boilerplateSkipped = paras.length - citableParas.length;
+
   let extractable: string | null = null;
-  for (const p of paras) {
+  for (const p of citableParas) {
     if (p.length < 40 || p.length > 420) continue;
     if (entity && entity.length >= 2 && p.includes(entity.slice(0, Math.min(6, entity.length)))) {
       extractable = p;
@@ -429,7 +464,7 @@ export async function runCitabilityCheck(input: CitabilityInput): Promise<CheckR
     }
   }
   if (!extractable) {
-    for (const p of paras) {
+    for (const p of citableParas) {
       if (p.length >= 60 && p.length <= 300) {
         extractable = p;
         break;
@@ -443,8 +478,8 @@ export async function runCitabilityCheck(input: CitabilityInput): Promise<CheckR
     score: extractScore,
     weight: 0.1,
     basis: extractable
-      ? `找到一段 ${extractable.length} 字符且语义自洽的段落，可被直接摘录`
-      : "未找到 60–300 字符之间、语义自洽的独立段落",
+      ? `找到一段 ${extractable.length} 字符且语义自洽的段落，可被直接摘录（已排除 ${boilerplateSkipped} 段页脚/法务类样板文）`
+      : `未找到 60–300 字符之间、语义自洽的独立段落（已排除 ${boilerplateSkipped} 段页脚/法务类样板文）`,
   });
   findings.push({
     id: "extractable",
@@ -509,6 +544,7 @@ export async function runCitabilityCheck(input: CitabilityInput): Promise<CheckR
         published,
         modified,
         faqSchema,
+        boilerplateParagraphsSkipped: boilerplateSkipped,
       },
     },
     disclaimer: DISCLAIMER,
