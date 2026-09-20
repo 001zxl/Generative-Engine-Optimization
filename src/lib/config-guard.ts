@@ -8,6 +8,8 @@
 
 export interface ConfigEnv {
   NODE_ENV?: string;
+  CONSOLE_PASSWORD?: string;
+  AUTH_SECRET?: string;
   APP_BASE_URL?: string;
   CONTACT_EMAIL?: string;
   SITE_NAME?: string;
@@ -108,7 +110,25 @@ export function validateConfig(env: ConfigEnv): ConfigVerdict {
   /* —— 3. SITE_NAME —— */
   if (!siteName) warnings.push("SITE_NAME 未设置，将使用默认名称。");
 
-  /* —— 4. 数据库路径 —— */
+  /* —— 4. 运营台鉴权：缺失等于没有门，必须阻止启动 —— */
+  const consolePassword = (env.CONSOLE_PASSWORD ?? "").trim();
+  const authSecret = (env.AUTH_SECRET ?? "").trim();
+  if (!consolePassword) {
+    errors.push(
+      "CONSOLE_PASSWORD 未设置。/console 含线索联系方式与品牌数据，缺失鉴权时系统会拒绝访问（fail closed）。",
+    );
+  } else if (consolePassword.length < 6) {
+    errors.push(`CONSOLE_PASSWORD 过短（${consolePassword.length} 位），至少 6 位。`);
+  } else if (/^(change-me|password|123456|admin)/i.test(consolePassword)) {
+    warnings.push("CONSOLE_PASSWORD 看起来是示例值，生产环境请换成强口令。");
+  }
+  if (!authSecret) {
+    errors.push("AUTH_SECRET 未设置。会话 Cookie 的签名密钥，缺失会导致无法登录。");
+  } else if (authSecret.length < 16) {
+    errors.push(`AUTH_SECRET 过短（${authSecret.length} 位），至少 16 位。建议 openssl rand -base64 32。`);
+  }
+
+  /* —— 5. 数据库路径 —— */
   const dbPath = env.DATABASE_PATH ?? "./data/geo.db";
   if (dbPath.trim() === "") errors.push("DATABASE_PATH 为空字符串。");
 

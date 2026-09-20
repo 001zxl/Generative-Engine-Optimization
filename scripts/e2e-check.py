@@ -121,30 +121,36 @@ check("非法邮箱被拒绝", st == 400, st)
 st, d = post("/api/leads", {"email": "bot@spam.com", "honeypot": "x"})
 check("蜜罐字段生效（静默吞掉不落库）", st == 200, st)
 
-print("\n[6] 运营台")
-# 七个核心模块必须全部可达
-for path, key in [
-    ("/console/brands", "品牌与竞品"),
-    ("/console/questions", "问题集"),
-    ("/console/claims", "事实清单"),
-    ("/console/sampling", "多平台采样"),
-    ("/console/evaluation", "核心指标"),
-    ("/console/content", "内容资产"),
-    ("/console/attribution", "获客归因"),
-]:
-    st, h = get(path)
-    check(f"模块 {path} 可访问且内容正确", st == 200 and key in h, f"HTTP {st}")
+print("\n[6] 运营台鉴权（内容断言见 e2e-auth.mjs，登录是 Server Action 无法用 urllib 走）")
 
-st, html = get("/console")
-check("总览 200", st == 200, st)
-check("展示了第 5 问（访问与咨询）", "带来访问和咨询" in html)
-check("运营台首页展示完整核心链路", "核心业务链" in html and "品牌 → 问题库 → 事实库 → 采样 → 评估 → 内容 → 归因" in html)
-st, html = get("/console/leads")
-check("线索页 200", st == 200, st)
-check("线索已落库并可见", "buyer@example-eu.com" in html, "")
-st, html = get("/console/tool-runs")
-check("工具使用记录页 200", st == 200, st)
-check("记录含检查目标", "粘贴正文" in html, "")
+
+def get_no_redirect(path):
+    """不自动跟随重定向，用于验证鉴权拦截"""
+    class NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, *a, **kw):
+            return None
+
+    op = urllib.request.build_opener(NoRedirect)
+    try:
+        with op.open(BASE + path, timeout=20) as r:
+            return r.status, r.headers.get("Location"), r.read().decode("utf-8", "ignore")
+    except urllib.error.HTTPError as e:
+        return e.code, e.headers.get("Location"), ""
+
+
+for path in ["/console", "/console/leads", "/console/attribution", "/console/evaluation"]:
+    st, loc, body = get_no_redirect(path)
+    check(f"未授权访问 {path} 被拦截", st in (302, 307, 308) and "/console/login" in (loc or ""), f"HTTP {st} → {loc}")
+    check(f"{path} 未泄漏线索邮箱", "buyer@" not in body and "@example-eu" not in body)
+
+st, html = get("/console/login")
+check("登录页可访问", st == 200 and "运营台口令" in html, f"HTTP {st}")
+check("登录页不含运营台侧边栏（未授权不应看到模块结构）", "核心链路" not in html and "品牌与竞品" not in html)
+
+st, html = get("/")
+check("公开站首页仍可匿名访问", st == 200 and "让品牌更容易被 AI" in html)
+st, html = get("/tools/ai-crawler-check")
+check("免费工具仍可匿名访问", st == 200)
 
 print("\n[7] 导出与索引策略")
 st, body = get("/api/tool-runs/" + good_slug + "/export")

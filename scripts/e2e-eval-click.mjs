@@ -33,7 +33,21 @@ const check = (name, cond, detail = "") => {
 };
 
 const browser = await chromium.launch({ executablePath: EXE });
-const page = await (await browser.newContext({ viewport: { width: 1440, height: 900 }, locale: "zh-CN" })).newPage();
+const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, locale: "zh-CN" });
+const page = await ctx.newPage();
+
+/* —— 运营台现在需要登录，先建立会话 —— */
+const PASSWORD = process.env.CONSOLE_PASSWORD ?? "geo-console-local-dev";
+await page.goto(`${BASE}/console/login`, { waitUntil: "load", timeout: 45000 });
+await page.fill('input[name="password"]', PASSWORD);
+await page.click('button[type="submit"]');
+await page.waitForTimeout(2500);
+if (page.url().includes("/console/login")) {
+  console.error("登录失败，无法继续评估测试。请确认 CONSOLE_PASSWORD。");
+  await browser.close();
+  process.exit(1);
+}
+console.log("已登录运营台");
 
 const responses = [];
 const pageErrors = [];

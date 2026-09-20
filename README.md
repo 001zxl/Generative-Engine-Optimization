@@ -58,9 +58,14 @@ pnpm test                      # 单元测试 67 项（robots 12 + SSRF 7 + 名�
 python3 scripts/e2e-check.py   # 公开端 + 运营台验收（34 项，需服务已在 3100 运行）
 node scripts/e2e-chain.ts      # 核心业务链集成测试（51 项，用临时库，不碰 data/geo.db）
 
-# 评估页浏览器级回归测试（复现并验证 P0 外键缺陷已修）
-node scripts/fixture-for-eval-test.ts /tmp/fx.db && DATABASE_PATH=/tmp/fx.db npx next start -p 3101 &
-pnpm e2e:eval http://localhost:3101
+# 运营台鉴权（浏览器级，26 项）
+pnpm e2e:auth http://localhost:3100 $CONSOLE_PASSWORD
+
+# 评估页浏览器级回归（复现并验证 P0 外键缺陷已修，13 项）
+node scripts/fixture-for-eval-test.ts /tmp/fx.db
+DATABASE_PATH=/tmp/fx.db CONSOLE_PASSWORD=fixture-pass AUTH_SECRET=fixture-secret-0123456789abcdef \
+  npx next start -p 3101 &
+CONSOLE_PASSWORD=fixture-pass pnpm e2e:eval http://localhost:3101
 
 # 视觉验收：对关键页面截图（复用本机已缓存的 Playwright Chromium）
 RESULT_SLUG=xxxx pnpm screenshot
@@ -129,6 +134,8 @@ pnpm db:reset
 | `DATABASE_PATH` | `./data/geo.db` | SQLite 数据文件 |
 | `DEFAULT_WORKSPACE_SLUG` | `default` | 默认工作区 |
 | `SITE_NAME` / `CONTACT_EMAIL` | — | 站点展示信息 |
+| `CONSOLE_PASSWORD` | 无（**必填**） | 运营台口令，至少 6 位 |
+| `AUTH_SECRET` | 无（**必填**） | 会话 Cookie 的 HMAC 密钥，至少 16 位 |
 | `EXTRA_TRUSTED_CIDRS` | **空** | SSRF 逃生口，见下。生产环境请留空 |
 
 ### SSRF 逃生口 `EXTRA_TRUSTED_CIDRS`
@@ -312,13 +319,15 @@ geo-growth-engine/
 │   │   ├── tools/                      # 两个免费工具
 │   │   ├── r/[id]/page.tsx             # 可分享结果页（最重要的传播页，分页式）
 │   │   ├── methods/page.tsx            # 方法与数据边界
-│   │   ├── console/                    # 内部运营台（shadcn Sidebar + Recharts）
-│   │   │   ├── brands/ questions/ claims/     # 核心链路 1-3
-│   │   │   ├── sampling/ evaluation/          # 核心链路 4-5
-│   │   │   ├── content/ attribution/          # 核心链路 6-7
-│   │   │   ├── leads/ tool-runs/              # 线索与工具记录
-│   │   │   ├── actions.ts                     # 全部 Server Actions
-│   │   │   └── roadmap/                       # 产品路线图
+│   │   ├── console/
+│   │   │   ├── login/                         # 登录页（在受保护路由组之外）
+│   │   │   └── (app)/                         # 受保护路由组（middleware 拦截）
+│   │   │       ├── brands/ questions/ claims/     # 核心链路 1-3
+│   │   │       ├── sampling/ evaluation/          # 核心链路 4-5
+│   │   │       ├── content/ attribution/          # 核心链路 6-7
+│   │   │       ├── leads/ tool-runs/ roadmap/
+│   │   │       └── actions.ts                 # 全部 Server Actions
+│   ├── middleware.ts                   # ★ 运营台访问控制
 │   │   ├── api/                        # Route Handlers
 │   │   ├── icon.svg                    # favicon（App Router 约定）
 │   │   ├── robots.ts / sitemap.ts
@@ -346,6 +355,8 @@ geo-growth-engine/
 │       │   ├── repo.ts                 # 工具 / 线索 / 统计
 │       │   └── repo-domains.ts         # 七个业务模块的数据访问
 │       ├── evaluation.ts                # ★ 评估引擎（纯函数，可单测）
+│       ├── evaluate-run.ts              # ★ 评估编排（从 Server Action 抽出，可测）
+│       ├── auth.ts                      # ★ 会话签发与校验（Web Crypto，Edge 可用）
 │       ├── status.ts                   # 状态 → 视觉映射（不散落到页面）
 │       ├── rate-limit.ts
 │       └── site.ts
@@ -445,11 +456,32 @@ geo-growth-engine/
 **结论**：当前版本适合「单台 VPS + 持久磁盘」或本地/内网部署。
 若要用无状态容器或多副本横向扩展，必须先完成上表第 1、2 项。
 
-### 12.3 上线前检查清单
+### 12.3 运营台鉴权
+
+`/console` 含线索联系方式与品牌数据，已加访问控制：
+
+| 项 | 实现 |
+|---|---|
+| 认证方式 | 单操作员口令（`CONSOLE_PASSWORD`），不做用户表 —— 当前是单工作区单操作员场景 |
+| 会话 | HMAC 签名的 HttpOnly + SameSite=Lax Cookie，12 小时，服务端不存 session |
+| 校验位置 | `src/middleware.ts` 拦截全部 `/console/*`（登录页除外） |
+| **失败关闭** | 缺少 `CONSOLE_PASSWORD` 或 `AUTH_SECRET` 时**拒绝所有人访问**，而不是放行 |
+| 爆破防护 | 连续失败 8 次锁定 10 分钟（内存计数，多实例需换 Redis） |
+| 开放重定向 | `?next=` 经 `safeNextPath()` 过滤，只允许站内相对路径 |
+
+**路由结构**：受保护页面放在路由组 `src/app/console/(app)/`，
+登录页在 `src/app/console/login/`（**在路由组之外**）。
+
+> 为什么要分组：早先登录页在 `/console` 下，继承了运营台 layout，
+> 于是**未授权就能在登录页看到完整侧边栏与模块名称**，页面上还多出一个 logout 表单
+> （导致自动化点击命中错误按钮）。分组后登录页只渲染自己。
+> 这个缺陷是被 `scripts/e2e-auth.mjs` 抓出来的。
+
+### 12.4 上线前检查清单
 
 - [ ] 替换 `APP_BASE_URL` 为真实域名（建议 https）
 - [ ] 替换 `CONTACT_EMAIL` 为真实可收信邮箱
 - [ ] 确认 `.env` 中**没有** `ALLOW_INSECURE_DEFAULTS`
 - [ ] 删除 `.env` 中的 `EXTRA_TRUSTED_CIDRS`（除非你的网络确实走透明代理）
-- [ ] 为 `/console` 补上登录鉴权
+- [x] 为 `/console` 补上登录鉴权（见 §12.4）
 - [ ] 配置数据备份（`data/geo.db` 是唯一的数据文件）

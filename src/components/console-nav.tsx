@@ -15,6 +15,7 @@ import {
   IconFileText,
   IconChartHistogram,
   IconMicroscope,
+  IconLogout,
 } from "@tabler/icons-react";
 import {
   Sidebar,
@@ -30,6 +31,7 @@ import {
   SidebarSeparator,
 } from "@/components/ui/sidebar";
 import { site } from "@/lib/site";
+import { logout } from "@/app/console/login/actions";
 
 /**
  * 侧边栏按「使用顺序」组织，而不是按字母或功能分类 ——
@@ -121,6 +123,14 @@ export function ConsoleSidebar() {
                 <span>回到公开站</span>
               </Link>
             </SidebarMenuButton>
+          </SidebarMenuItem>
+          <SidebarMenuItem>
+            <form action={logout}>
+              <SidebarMenuButton type="submit" tooltip="退出登录">
+                <IconLogout className="size-4" />
+                <span>退出登录</span>
+              </SidebarMenuButton>
+            </form>
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarFooter>

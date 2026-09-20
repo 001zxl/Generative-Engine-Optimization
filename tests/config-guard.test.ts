@@ -15,6 +15,8 @@ const PROD_OK = {
   CONTACT_EMAIL: "hi@geo.example.cn",
   SITE_NAME: "某某 GEO 实验室",
   DATABASE_PATH: "./data/geo.db",
+  CONSOLE_PASSWORD: "a-strong-operator-passphrase",
+  AUTH_SECRET: "0123456789abcdef0123456789abcdef",
 };
 
 test("合法生产配置：无错误", () => {
@@ -105,4 +107,30 @@ test("isLocalUrl 边界：真实域名与相似字符串不应误判", () => {
   assert.equal(isLocalUrl("http://127.5.5.5:3000"), true, "127.0.0.0/8 整段应命中");
   assert.equal(isLocalUrl("http://localhost"), true);
   assert.equal(isLocalUrl("垃圾"), false, "非法输入不误判为本机");
+});
+
+/* =========================================================================
+ * 运营台鉴权是硬门槛：缺失等于没有门。
+ * 添加这组断言的原因：加鉴权之前 /console/leads 未授权就能读到线索邮箱。
+ * ========================================================================= */
+
+test("缺少 CONSOLE_PASSWORD：拒绝启动", () => {
+  const v = validateConfig({ ...PROD_OK, CONSOLE_PASSWORD: undefined });
+  assert.ok(v.errors.some((e) => /CONSOLE_PASSWORD 未设置/.test(e)));
+});
+
+test("缺少 AUTH_SECRET：拒绝启动", () => {
+  const v = validateConfig({ ...PROD_OK, AUTH_SECRET: undefined });
+  assert.ok(v.errors.some((e) => /AUTH_SECRET 未设置/.test(e)));
+});
+
+test("口令或密钥过短：拒绝启动", () => {
+  assert.ok(validateConfig({ ...PROD_OK, CONSOLE_PASSWORD: "abc" }).errors.some((e) => /过短/.test(e)));
+  assert.ok(validateConfig({ ...PROD_OK, AUTH_SECRET: "short" }).errors.some((e) => /过短/.test(e)));
+});
+
+test("示例口令：警告但不阻断（避免本地开发被卡住）", () => {
+  const v = validateConfig({ ...PROD_OK, CONSOLE_PASSWORD: "change-me-before-deploy" });
+  assert.deepEqual(v.errors, []);
+  assert.ok(v.warnings.some((w) => /示例值/.test(w)));
 });
