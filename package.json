@@ -14,7 +14,8 @@
     "screenshot": "node scripts/screenshot.mjs",
     "verify": "pnpm typecheck && pnpm test && pnpm build",
     "preflight": "node scripts/preflight.ts",
-    "seed": "node scripts/seed.ts"
+    "seed": "node scripts/seed.ts",
+    "e2e:eval": "node scripts/e2e-eval-click.mjs"
   },
   "dependencies": {
     "@tabler/icons-react": "^3.47.0",

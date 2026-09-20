@@ -56,7 +56,11 @@ pnpm verify                    # 类型检查 + 单元测试 + 构建（一条�
 pnpm seed                      # 写入演示数据（幂等，不含线索信息）
 pnpm test                      # 单元测试 67 项（robots 12 + SSRF 7 + 名册 12 + 配置守卫 11 + 评估引擎 21 + 可引用性 4）
 python3 scripts/e2e-check.py   # 公开端 + 运营台验收（34 项，需服务已在 3100 运行）
-node scripts/e2e-chain.ts      # 核心业务链集成测试（42 项，用临时库，不碰 data/geo.db）
+node scripts/e2e-chain.ts      # 核心业务链集成测试（51 项，用临时库，不碰 data/geo.db）
+
+# 评估页浏览器级回归测试（复现并验证 P0 外键缺陷已修）
+node scripts/fixture-for-eval-test.ts /tmp/fx.db && DATABASE_PATH=/tmp/fx.db npx next start -p 3101 &
+pnpm e2e:eval http://localhost:3101
 
 # 视觉验收：对关键页面截图（复用本机已缓存的 Playwright Chromium）
 RESULT_SLUG=xxxx pnpm screenshot

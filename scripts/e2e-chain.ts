@@ -19,6 +19,7 @@ process.env.DEFAULT_WORKSPACE_SLUG = "default";
 const R = await import("../src/lib/db/repo-domains.ts");
 const { extractFromAnswer, computeMetrics, checkFactConsistency } = await import("../src/lib/evaluation.ts");
 const { getDb } = await import("../src/lib/db/index.ts");
+const { evaluateScope } = await import("../src/lib/evaluate-run.ts");
 
 let pass = 0;
 const failures: string[] = [];
@@ -129,56 +130,67 @@ const badCsv = `question,engine,answer\n某个不存在于问题集的问题,Cha
 const imp2 = R.importSamplesCsv(created.runId, badCsv);
 check("不属于该问题集的行被拒绝并报错", imp2.imported === 0 && imp2.errors.length === 1, JSON.stringify(imp2.errors));
 
-console.log("\n[6] 模块5 评估与指标");
-const entities = ctx!.entities;
-const forMetrics = [];
-for (const s of R.listSamples(created.runId)) {
-  const ex = extractFromAnswer(s.raw_answer, entities, ctx!.ownedDomains);
-  R.saveEvaluation({ sampleId: s.id, evaluator: "mentions", version: "1.0.0", result: ex.mentions, confidence: 0.8 });
-  R.saveEvaluation({ sampleId: s.id, evaluator: "citations", version: "1.0.0", result: ex.citations, confidence: 0.9 });
-  const facts = checkFactConsistency(s.raw_answer, R.getApprovedClaims());
-  const hasConflict = facts.some((f) => f.verdict === "conflict");
-  R.saveEvaluation({
-    sampleId: s.id,
-    evaluator: "facts",
-    version: "1.0.0",
-    result: facts,
-    confidence: hasConflict ? 0.35 : 0.55,
-    needsReview: hasConflict,
-  });
-  forMetrics.push({ sampleId: s.id, mentions: ex.mentions, citations: ex.citations });
-}
-const { metrics, notComputable } = computeMetrics(forMetrics);
-for (const m of metrics) {
-  R.saveMetricSnapshot({
-    runId: created.runId,
-    metric: m.metric,
-    value: m.value,
-    numerator: m.numerator,
-    denominator: m.denominator,
-    dimension: { basis: m.basis },
-  });
-}
-const byMetric = Object.fromEntries(metrics.map((m) => [m.metric, m]));
+console.log("\n[6] 模块5 评估与指标（调用生产编排函数，不重写逻辑）");
+// 关键：这里调用的是 Server Action 内部真正执行的同一个函数。
+// 之前测试自己重写了一遍评估流程，所以「runId 为空时写入不存在的 run_id」这个
+// 缺陷完全没被覆盖 —— 直到真实使用才以 HTTP 500 暴露。
+const credited = evaluateScope({ runId: created.runId, brandId });
+check("按批次评估成功", credited.ok, JSON.stringify(credited.metrics.map((m) => m.metric)));
+check("评估到了全部样本", credited.samples === R.listSamples(created.runId).length, `samples=${credited.samples}`);
+check("产出四项指标", credited.metrics.length === 4, JSON.stringify(credited.metrics.map((m) => m.metric)));
+const runSnaps = R.listMetricSnapshots(created.runId);
+check(
+  "每个落库的快照都带可展示的计算口径",
+  runSnaps.length > 0 &&
+    runSnaps.every((snap) => {
+      const d = JSON.parse(snap.dimension_json) as { basis?: string };
+      return typeof d.basis === "string" && d.basis.length > 10;
+    }),
+  `${runSnaps.length} 条快照`,
+);
+
+const byMetric = Object.fromEntries(credited.metrics.map((m) => [m.metric, m]));
 check("产出提及率", !!byMetric.mention_rate, byMetric.mention_rate && `${byMetric.mention_rate.numerator}/${byMetric.mention_rate.denominator}`);
 check("产出首推率", !!byMetric.top1_rate, byMetric.top1_rate && `${byMetric.top1_rate.numerator}/${byMetric.top1_rate.denominator}`);
 check("产出 Share of Voice", !!byMetric.sov, byMetric.sov && `${byMetric.sov.numerator}/${byMetric.sov.denominator}`);
 check("产出自有域引用率", !!byMetric.owned_citation_rate, byMetric.owned_citation_rate && `${byMetric.owned_citation_rate.numerator}/${byMetric.owned_citation_rate.denominator}`);
-check("每个指标都带计算口径", metrics.every((m) => m.basis.length > 10));
-check("指标快照已落库", R.listMetricSnapshots(created.runId).length === metrics.length);
+check("指标快照已落库", R.listMetricSnapshots(created.runId).length === credited.metrics.length);
 check("冲突样本进入人工复核队列", R.countPendingReviews() > 0, `待复核 ${R.countPendingReviews()}`);
-const noData = computeMetrics([]);
-check("完全无样本时四项指标全部标注无法计算", noData.metrics.length === 0 && noData.notComputable.length === 4);
-// 有样本但样本里什么都没提到时，提及率是真实的 0%（可计算），
-// 而首推率/SoV/引用率无从计算 —— 两者必须区分开
-const zeroMention = computeMetrics([{ sampleId: "x", mentions: [], citations: [] }]);
+
+/* —— P0 回归：跨批次范围（runId = null）不得写入不存在的 run_id —— */
+const crossScope = evaluateScope({ runId: null, brandId });
+check("跨批次范围评估成功（runId=null）", crossScope.ok, JSON.stringify(crossScope));
+check("跨批次范围标记正确", crossScope.scope === "all_recent", crossScope.scope);
+const nullRunSnaps = R.listMetricSnapshots().filter((m) => m.run_id === null);
+check("跨批次快照的 run_id 为 NULL（而不是编造的 id）", nullRunSnaps.length > 0, `NULL 快照 ${nullRunSnaps.length} 条`);
+const crossDim = nullRunSnaps[0] ? (JSON.parse(nullRunSnaps[0].dimension_json) as { scope?: string; engines?: string[] }) : {};
+check("跨批次快照记录了范围与引擎", crossDim.scope === "all_recent" && (crossDim.engines?.length ?? 0) > 0, JSON.stringify(crossDim));
+check(
+  "不存在任何指向假 run_id 的快照",
+  R.listMetricSnapshots().every((m) => m.run_id === null || R.listSamplingRuns().some((r) => r.id === m.run_id)),
+);
+
+/* —— 显式拒绝编造外键（防止同类缺陷再次出现）—— */
+let fkRejected = false;
+try {
+  R.saveMetricSnapshot({ runId: "manual", metric: "mention_rate", value: 0.5, numerator: 1, denominator: 2, dimension: {} });
+} catch (e) {
+  fkRejected = e instanceof Error && /run_id 不存在/.test(e.message);
+}
+check("写入不存在的 run_id 被显式拒绝并给出可读错误", fkRejected);
+
+/* —— 空范围要给出原因，而不是静默产出 0 —— */
+const emptyScope = evaluateScope({ runId: "run_s_不存在的批次", brandId });
+check("不存在的批次返回失败与原因", !emptyScope.ok && !!emptyScope.reason, emptyScope.reason);
+
+const mentionOnly = computeMetrics([{ sampleId: "x", mentions: [], citations: [] }]);
 check(
   "有样本但零提及时：提及率为 0，其余标注无法计算",
-  zeroMention.metrics.length === 1 &&
-    zeroMention.metrics[0].metric === "mention_rate" &&
-    zeroMention.metrics[0].value === 0 &&
-    zeroMention.notComputable.length === 3,
-  `metrics=${zeroMention.metrics.length}, notComputable=${zeroMention.notComputable.length}`,
+  mentionOnly.metrics.length === 1 &&
+    mentionOnly.metrics[0].metric === "mention_rate" &&
+    mentionOnly.metrics[0].value === 0 &&
+    mentionOnly.notComputable.length === 3,
+  `metrics=${mentionOnly.metrics.length}, notComputable=${mentionOnly.notComputable.length}`,
 );
 
 console.log("\n[7] 模块6 内容与发布");

@@ -860,14 +860,24 @@ export function listEvaluations(sampleIds: string[]): EvaluationRow[] {
   );
 }
 
+/**
+ * 写入指标快照。
+ *
+ * `runId` 为 null 表示「跨批次的全部样本」范围 —— 此时 run_id 存 NULL。
+ * ⚠️ 千万不要为了"有个值"而编造 run id：run_id 是指向 sampling_runs 的外键，
+ * 写一个不存在的 id 会直接触发 FOREIGN KEY constraint failed（已发生过的缺陷）。
+ */
 export function saveMetricSnapshot(input: {
-  runId: string;
+  runId: string | null;
   metric: string;
   value: number;
   numerator: number;
   denominator: number;
   dimension: Record<string, unknown>;
 }): void {
+  if (input.runId !== null && !one<{ id: string }>("SELECT id FROM sampling_runs WHERE id = ?", input.runId)) {
+    throw new Error(`指标快照的 run_id 不存在：${input.runId}。跨批次范围请传 null。`);
+  }
   run(
     `INSERT INTO metric_snapshots (id, workspace_id, run_id, metric, value, numerator, denominator, dimension_json, computed_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -895,6 +905,11 @@ export interface MetricSnapshotRow {
   run_label: string | null;
 }
 
+/**
+ * 读取指标快照。
+ *  - 不传 runId：返回全部（含跨批次范围的 run_id=NULL 记录），按计算时间倒序
+ *  - 传 runId：只看该批次
+ */
 export function listMetricSnapshots(runId?: string): MetricSnapshotRow[] {
   const sql = `SELECT m.*, r.label AS run_label FROM metric_snapshots m
     LEFT JOIN sampling_runs r ON r.id = m.run_id

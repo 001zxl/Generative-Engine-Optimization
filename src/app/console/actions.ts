@@ -2,13 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import * as R from "@/lib/db/repo-domains";
-import {
-  extractFromAnswer,
-  computeMetrics,
-  checkFactConsistency,
-  type EntityRef,
-  type SampleForMetrics,
-} from "@/lib/evaluation";
+import { evaluateScope } from "@/lib/evaluate-run";
 
 /* ------------------------------------------------------------------ *
  * 工具
@@ -188,65 +182,12 @@ export async function sampleImportCsv(fd: FormData) {
  * 模块 5：评估
  * ===================================================================== */
 export async function evaluateRun(fd: FormData) {
-  const runId = s(fd, "runId");
-  let brandId = s(fd, "brandId");
-  if (!brandId) brandId = R.getDefaultBrandId() ?? "";
-  if (!brandId) return;
+  const runIdRaw = s(fd, "runId");
+  // 空字符串 = 跨批次的「全部样本」范围 → 传 null，绝不编造外键
+  const runId = runIdRaw || null;
+  const brandId = s(fd, "brandId") || R.getDefaultBrandId() || "";
 
-  const ctx = R.getBrandContext(brandId);
-  if (!ctx) return;
-  const entities: EntityRef[] = ctx.entities;
-  const claims = R.getApprovedClaims();
-
-  const samples = runId ? R.listSamples(runId) : R.listSamples().slice(0, 200);
-  const forMetrics: SampleForMetrics[] = [];
-
-  for (const sample of samples) {
-    const extracted = extractFromAnswer(sample.raw_answer, entities, ctx.ownedDomains);
-    R.saveEvaluation({
-      sampleId: sample.id,
-      evaluator: "mentions",
-      version: "1.0.0",
-      result: extracted.mentions,
-      confidence: extracted.mentions.length > 0 ? 0.8 : 1,
-    });
-    R.saveEvaluation({
-      sampleId: sample.id,
-      evaluator: "citations",
-      version: "1.0.0",
-      result: extracted.citations,
-      confidence: 0.9,
-    });
-
-    if (claims.length > 0) {
-      const facts = checkFactConsistency(sample.raw_answer, claims);
-      const hasConflict = facts.some((f) => f.verdict === "conflict");
-      R.saveEvaluation({
-        sampleId: sample.id,
-        evaluator: "facts",
-        version: "1.0.0",
-        result: facts,
-        confidence: facts.length ? Math.min(...facts.map((f) => f.confidence)) : 0.2,
-        // 事实判定是启发式 —— 一律进人工复核，不直接当结论
-        needsReview: hasConflict || facts.some((f) => f.verdict === "unknown"),
-      });
-    }
-
-    forMetrics.push({ sampleId: sample.id, mentions: extracted.mentions, citations: extracted.citations });
-  }
-
-  const { metrics } = computeMetrics(forMetrics);
-  for (const m of metrics) {
-    R.saveMetricSnapshot({
-      runId: runId || "manual",
-      metric: m.metric,
-      value: m.value,
-      numerator: m.numerator,
-      denominator: m.denominator,
-      dimension: { basis: m.basis, sampleCount: forMetrics.length },
-    });
-  }
-
+  evaluateScope({ runId, brandId });
   refresh(["/console/evaluation", "/console"]);
 }
 

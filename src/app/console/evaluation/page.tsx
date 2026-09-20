@@ -54,7 +54,9 @@ export default async function EvaluationPage({
   const { run: runParam } = await searchParams;
   const runs = R.listSamplingRuns();
   const selected = runParam ? runs.find((r) => r.id === runParam) : runs[0];
-  const snapshots = R.listMetricSnapshots(selected?.id);
+  // 取全部快照（不只当前批次）：否则用「全部样本」范围跑完评估后，
+  // 页面仍只查当前批次，用户会以为"评估没生效"。
+  const snapshots = R.listMetricSnapshots();
   const pendingReviews = R.countPendingReviews();
   const brands = R.listBrands();
   const approvedClaims = R.getApprovedClaims();
@@ -114,8 +116,14 @@ export default async function EvaluationPage({
       >
         <form action={evaluateRun} className="flex flex-wrap items-end gap-3">
           <Field label="采样批次">
-            <select name="runId" className={SELECT_CLS} style={{ width: "20rem" }} disabled={runs.length === 0}>
-              <option value="">全部样本（最近 200 条）</option>
+            <select
+              name="runId"
+              className={SELECT_CLS}
+              style={{ width: "20rem" }}
+              disabled={runs.length === 0}
+              defaultValue={selected?.id ?? ""}
+            >
+              <option value="">全部样本（跨批次，最近 200 条）</option>
               {runs.map((r) => (
                 <option key={r.id} value={r.id}>
                   {r.label}（{r.sample_count} 条样本）
@@ -181,7 +189,7 @@ export default async function EvaluationPage({
         ) : (
           <div className="grid gap-3 sm:grid-cols-2">
             {[...latest.entries()].map(([metric, snap]) => {
-              const dim = JSON.parse(snap.dimension_json) as { basis?: string };
+              const dim = JSON.parse(snap.dimension_json) as { basis?: string; scope?: string; engines?: string[] };
               return (
                 <Card key={metric} className="gap-1 py-4">
                   <CardContent className="px-4">
@@ -205,6 +213,13 @@ export default async function EvaluationPage({
                     </div>
                     <Progress value={snap.value * 100} className="mt-2 h-1.5" />
                     <p className="mt-2 text-xs text-muted-foreground">
+                      <span className="font-medium">范围：</span>
+                      {snap.run_id ? (snap.run_label ?? snap.run_id) : "全部样本（跨批次）"}
+                      <span className="ml-2">
+                        计算于 {snap.computed_at.slice(0, 16).replace("T", " ")}
+                      </span>
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">
                       <span className="font-medium">计算口径：</span>
                       {dim.basis ?? "—"}
                     </p>
