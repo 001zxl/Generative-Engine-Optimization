@@ -21,8 +21,27 @@
 
 ```bash
 pnpm install
+pnpm seed                # 写入演示数据（真实工厂站试点，不含任何线索信息）
 pnpm dev                 # 开发模式，http://localhost:3100
 ```
+
+`pnpm seed` 会写入一份完整的演示数据，让运营台的七个模块**立刻有内容可看**：
+
+| 模块 | 种子内容 |
+|---|---|
+| 1 品牌与竞品 | Pailian Aluminium（含 4 个别名）+ 1 个竞品 |
+| 2 问题库 | 1 个已冻结问题集 + 10 条真实海外买家问题 |
+| 3 事实与证据 | 9 条已批准事实（全部「自述」级，带官网原始 URL） |
+| 4 多平台采样 | 1 个批次 + 20 个待采任务（10 问 × ChatGPT / 通义千问） |
+| 5/6/7 | **需要真实回答后才会产生数据** —— 见下方说明 |
+
+数据来源是真实抓取的 [pailian-aluminium.com](https://www.pailian-aluminium.com) 公开页面内容，
+**不含任何线索邮箱或联系人信息**。脚本是幂等的，重复执行会跳过。
+
+> **模块 5/6/7 为什么种子不给数据**：评估需要 AI 的真实回答，而回答必须由人
+> 在真实消费端界面取得后粘贴。用 API 补全产生的回答**不含检索与引用**，
+> 算出来的提及率 / 引用率没有 GEO 含义 —— 这是采样方式必须区分 `manual_ui`
+> 与 `official_api` 的原因。
 
 生产模式：
 
@@ -34,7 +53,8 @@ pnpm build && pnpm start  # http://localhost:3100
 
 ```bash
 pnpm verify                    # 类型检查 + 单元测试 + 构建（一条命令）
-pnpm test                      # 单元测试 63 项（robots 12 + SSRF 7 + 名册 12 + 配置守卫 11 + 评估引擎 21）
+pnpm seed                      # 写入演示数据（幂等，不含线索信息）
+pnpm test                      # 单元测试 67 项（robots 12 + SSRF 7 + 名册 12 + 配置守卫 11 + 评估引擎 21 + 可引用性 4）
 python3 scripts/e2e-check.py   # 公开端 + 运营台验收（34 项，需服务已在 3100 运行）
 node scripts/e2e-chain.ts      # 核心业务链集成测试（42 项，用临时库，不碰 data/geo.db）
 
@@ -332,6 +352,9 @@ geo-growth-engine/
 │   └── config-guard.test.ts            # 生产配置守卫（11 项）
 └── scripts/
     ├── e2e-check.py                    # 34 项端到端验收
+    ├── seed.ts                         # 演示数据种子（幂等）
+    ├── pilot-real-site.ts              # 真实站点试点（同 seed，另附采样清单输出）
+    ├── verify-pilot.py                 # 验证试点数据是否在运营台可见
     ├── e2e-chain.ts                    # 核心业务链集成测试（42 项）
     ├── preflight.ts                    # 启动前配置守卫（build/start 前置）
     └── screenshot.mjs                  # 视觉验收（截图 + 溢出与控制台错误检查）
