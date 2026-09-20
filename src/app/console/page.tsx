@@ -5,11 +5,13 @@ import {
   IconHistory,
   IconShare3,
   IconClockExclamation,
+  IconArrowRight,
 } from "@tabler/icons-react";
 import { consoleStats } from "@/lib/db/repo";
 import { MetricCard, EmptyState } from "@/components/check-parts";
 import { DailyChart, FunnelChart, ToolChart, VerdictChart } from "@/components/console-charts";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -161,11 +163,11 @@ export default function ConsoleHome() {
       {/* ---------- 待建 ---------- */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">待建模块（批次 2：采样与评估）</CardTitle>
+          <CardTitle className="text-base">待补的核心业务链</CardTitle>
           <CardDescription>
-            下面四项需要「品牌 / 问题库 / 事实库 / 多平台采样」支撑。模块尚未实现，因此这里
-            <strong className="text-foreground">不放占位图表</strong>
-            —— 空图表比没有图表更容易误导决策。
+            当前真正在工作的只有两个检测工具。完整的 GEO 系统还需要这条链路：
+            <span className="font-mono text-xs"> 问题库 → 证据库 → 采样 → 评估 → 内容任务 → 归因</span>。
+            具体范围、依赖与已就位的数据表见产品路线图。
           </CardDescription>
         </CardHeader>
         <CardContent className="px-0">
@@ -189,7 +191,7 @@ export default function ConsoleHome() {
                   <TableCell className="text-muted-foreground">{dep}</TableCell>
                   <TableCell className="pr-6">
                     <Badge variant="secondary" className="font-normal">
-                      批次 2
+                      待建
                     </Badge>
                   </TableCell>
                 </TableRow>
@@ -205,6 +207,14 @@ export default function ConsoleHome() {
               </TableRow>
             </TableBody>
           </Table>
+          <div className="px-6 pt-4">
+            <Button asChild variant="outline" size="sm">
+              <Link href="/console/roadmap">
+                查看产品路线图
+                <IconArrowRight className="size-3.5" />
+              </Link>
+            </Button>
+          </div>
         </CardContent>
       </Card>
 

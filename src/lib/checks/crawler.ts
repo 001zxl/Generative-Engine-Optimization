@@ -28,6 +28,9 @@ interface BotVerdict {
   note: string;
   alsoPowers: string[];
   aggressive: boolean;
+  sourceUrl: string;
+  sourceTitle: string;
+  verifiedAt: string;
 }
 
 export async function runCrawlerCheck(rawUrl: string): Promise<CheckResult> {
@@ -328,6 +331,9 @@ export async function runCrawlerCheck(rawUrl: string): Promise<CheckResult> {
         note: bot.note,
         alsoPowers: bot.alsoPowers ?? [],
         aggressive: bot.aggressive ?? false,
+        sourceUrl: bot.sourceUrl,
+        sourceTitle: bot.sourceTitle,
+        verifiedAt: bot.verifiedAt,
       };
     });
 
@@ -472,6 +478,12 @@ Disallow: /`,
         .some((t) => t && declaredAgents.has(t)),
     );
     meta.roster = { updatedAt: ROSTER_UPDATED_AT, total: AI_BOTS.length, phantomChecked: PHANTOM_BOTS.length };
+    meta.phantomBots = PHANTOM_BOTS;
+    meta.evidenceLevels = {
+      vendor: AI_BOTS.filter((b) => b.evidence === "vendor").length,
+      observed: AI_BOTS.filter((b) => b.evidence === "observed").length,
+      reported: AI_BOTS.filter((b) => b.evidence === "reported").length,
+    };
 
     if (phantomFound.length > 0) {
       findings.push({
@@ -485,7 +497,9 @@ Disallow: /`,
         why:
           "屏蔽一个不存在的爬虫不会有任何效果，但会让人误以为「已经处理过 AI 抓取问题了」——" +
           "这种虚假的安心感，往往比不做更糟：真正决定你能否被 AI 引用的爬虫可能仍然处于封闭状态。",
-        evidence: phantomFound.map((p) => `${p.token}（本该是 ${p.wouldBe}）：${p.reality}`).join("\n\n"),
+        evidence: phantomFound
+          .map((p) => `${p.token}（本该是 ${p.wouldBe}）：${p.reality}\n核验入口：${p.verifyUrl}`)
+          .join("\n\n"),
         fix:
           "删掉这些无效规则，把精力放在真正影响 AI 引用的检索型爬虫上（见上一条结论），" +
           "尤其是国内平台背后的搜索索引爬虫。",

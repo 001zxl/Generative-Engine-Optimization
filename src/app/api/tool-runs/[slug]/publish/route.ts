@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 /**
  * 主动公开结果页。参数是 share_slug（与结果页 URL 同一个标识，不对外暴露内部 row id）。
  *
- * 默认所有检查结果都是私有的（noindex），只有用户显式调用这个接口之后，
+ * 默认所有检查结果都是 noindex（但持链接可访问），只有用户显式调用这个接口之后，
  * 结果页才允许被索引 —— 这是「私人检查默认不公开」的落地方式。
  */
 export async function POST(req: NextRequest, ctx: { params: Promise<{ slug: string }> }) {

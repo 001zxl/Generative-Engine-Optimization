@@ -59,7 +59,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   return {
     title: `${toolName}结果 · ${row.share_slug}`,
     description: "基于确定性规则的 AI 可发现性与内容可引用性检查结果。",
-    // 默认私有、不被索引；只有用户主动选择公开后才会放开
+    // 默认不被索引，但持有链接即可访问（未索引 ≠ 有访问权限）。
     robots: isPublic ? { index: true, follow: true } : { index: false, follow: false, nocache: true },
   };
 }
@@ -112,6 +112,9 @@ interface CrawlerMeta {
       note: string;
       alsoPowers: string[];
       aggressive: boolean;
+      sourceUrl: string;
+      sourceTitle: string;
+      verifiedAt: string;
     }>;
   };
   chinaMechanism?: Array<{ product: string; lever: string; detail: string }>;
@@ -186,7 +189,7 @@ export default async function ResultPage({ params }: Props) {
           </Badge>
         ) : (
           <Badge variant="outline" className="text-muted-foreground">
-            私有 · 未被搜索引擎索引
+            未索引 · 持链接可访问
           </Badge>
         )}
       </div>
@@ -412,6 +415,16 @@ export default async function ResultPage({ params }: Props) {
                               >
                                 {v.evidenceLabel}
                               </Badge>
+                              <a
+                                href={v.sourceUrl}
+                                target="_blank"
+                                rel="noopener noreferrer nofollow"
+                                title={`${v.sourceTitle}（核对于 ${v.verifiedAt}）`}
+                                className="mt-1 flex items-center gap-1 text-xs text-primary underline-offset-4 hover:underline"
+                              >
+                                查看来源
+                                <IconExternalLink className="size-3" />
+                              </a>
                             </TableCell>
                             <TableCell>
                               {v.allowed ? (
@@ -429,7 +442,8 @@ export default async function ResultPage({ params }: Props) {
                     </Table>
                     <p className="mt-3 px-6 text-xs text-muted-foreground">
                       「证据」表示这条数据的可信程度：官方文档 / 实测观测 / 社区清单。
-                      证据等级为「社区清单」的条目只作背景信息，<strong>不参与严重级别判定</strong>。
+                      每条都可点开「查看来源」自行复核。证据等级为「社区清单」的条目只作背景信息，
+                      <strong>不参与严重级别判定</strong>。
                       {crawler.roster && (
                         <>
                           {" "}

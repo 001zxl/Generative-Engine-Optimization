@@ -20,17 +20,17 @@ import { BlurFade } from "@/components/ui/blur-fade";
 import { AI_BOTS } from "@/lib/checks/bots";
 import { site } from "@/lib/site";
 
-const PLATFORMS = [
-  "ChatGPT / OAI-SearchBot",
-  "Perplexity",
-  "Google AI Overviews",
-  "Claude",
-  "Microsoft Copilot",
-  "Gemini",
-  "DuckDuckGo AI",
-  "You.com",
-  "Common Crawl",
-  "Apple Intelligence",
+const CRAWLER_TARGETS = [
+  "OAI-SearchBot（ChatGPT 搜索）",
+  "PerplexityBot",
+  "Googlebot（AI Overviews 来源）",
+  "Claude-SearchBot",
+  "Bingbot（Copilot 来源）",
+  "Baiduspider（文心一言）",
+  "Sogou web spider（腾讯元宝）",
+  "YisouSpider（夸克 / 神马）",
+  "QwenBot（通义千问）",
+  "ChatGLM-Spider（智谱清言）",
 ];
 
 const TOOLS = [
@@ -147,13 +147,15 @@ export default function HomePage() {
         </BlurFade>
       </section>
 
-      {/* ================= 平台跑马灯（全站唯一的持续动效，明确非背书） ================= */}
+      {/* ================= 爬虫规则跑马灯（全站唯一的持续动效） ================= */}
       <section className="border-y py-6">
         <p className="mb-4 text-center text-xs text-muted-foreground">
-          检查覆盖的 AI 检索入口 —— 依据的是各平台的公开爬虫标识，不代表任何形式的合作或背书
+          我们检查的是这些爬虫在 robots.txt 中的放行规则 ——
+          <strong className="text-foreground">不监测各平台的实际回答内容</strong>
+          ，也不代表任何形式的合作或背书
         </p>
         <Marquee pauseOnHover className="[--duration:38s]">
-          {PLATFORMS.map((p) => (
+          {CRAWLER_TARGETS.map((p) => (
             <span
               key={p}
               className="mx-1.5 rounded-full border bg-card px-3.5 py-1.5 font-mono text-xs text-muted-foreground"
@@ -270,8 +272,9 @@ export default function HomePage() {
           ))}
         </div>
         <p className="mt-4 text-xs text-muted-foreground">
-          全过程<strong>不调用任何大模型</strong>：同样的输入永远得到同样的输出，每一项结论都可复算。
-          这也意味着它可以被免费、无限次地使用。
+          全过程<strong>不调用任何大模型</strong>：同样的输入永远得到同样的输出，每一项结论都可复算 ——
+          这也是它能零成本提供的原因。公开接口设有速率限制（每个 IP 每 10 分钟 12 次检查），
+          请在限额内使用；批量站点审计请另行联系。
         </p>
       </section>
 
@@ -284,8 +287,8 @@ export default function HomePage() {
           <CardContent className="flex flex-col gap-3 text-sm text-muted-foreground">
             <p>
               本站自己遵守同一套标准：公开页面允许检索型 AI 爬虫抓取、每页声明 canonical、提供结构化数据与
-              sitemap；而用户的检查结果默认私有、<strong>不被搜索引擎索引</strong>，只有用户主动选择公开后
-              才会生成可分享页面。
+              sitemap；而用户的检查结果<strong>默认不被搜索引擎索引</strong>，但<strong>持有链接即可访问</strong>
+              —— 也就是说，结果页是「未索引」而非「需要授权」，请不要把含敏感信息的网址提交给本工具。
             </p>
             <p>
               联系：{" "}

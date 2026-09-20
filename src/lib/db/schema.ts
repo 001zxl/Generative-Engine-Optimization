@@ -143,7 +143,7 @@ CREATE TABLE IF NOT EXISTS tool_runs (
   share_slug   TEXT NOT NULL UNIQUE,
   input_json   TEXT NOT NULL,
   result_json  TEXT NOT NULL,
-  is_public    INTEGER NOT NULL DEFAULT 0,   -- 默认私有、不被索引（§6.7 / §13）
+  is_public    INTEGER NOT NULL DEFAULT 0,   -- 默认 noindex（持链接可访问），用户主动公开后才允许索引
   status       TEXT NOT NULL DEFAULT 'done',
   ip_hash      TEXT,
   user_agent   TEXT,

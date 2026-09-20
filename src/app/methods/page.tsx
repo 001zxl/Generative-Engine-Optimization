@@ -108,6 +108,15 @@ export default function Page() {
         <CardContent>
           <ul className="flex list-disc flex-col gap-2.5 pl-5 text-sm text-muted-foreground">
             <li>
+              <strong className="text-foreground">
+                当前这套工具只检查「爬虫规则」，不监测各平台的实际回答内容。
+              </strong>
+              具体来说：它读的是 robots.txt 与页面 HTML，判断的是「检索型爬虫能不能取到你、内容是否容易被摘录」。
+              它<strong className="text-foreground">不会</strong>去问 ChatGPT / 豆包 / 千问「你推荐哪家供应商」，
+              因此也无法告诉你品牌在某个平台的答案里有没有被提到。那属于「多平台采样与评估」模块，
+              是本产品的下一步（见运营台的产品路线图），目前尚未实现。
+            </li>
+            <li>
               <strong className="text-foreground">不测「AI 会不会推荐你」。</strong>
               生成式系统的回答会随模型版本、时间、地区、上下文变化，任何声称能给出稳定排名分数的做法都不可复现。
             </li>
@@ -186,9 +195,10 @@ export default function Page() {
         <CardContent>
           <ul className="flex list-disc flex-col gap-2.5 pl-5 text-sm text-muted-foreground">
             <li>
-              <strong className="text-foreground">检查结果默认私有。</strong>生成的结果页带有{" "}
-              <code className="font-mono text-xs">noindex</code> 标记，不会被搜索引擎索引，
-              链接本身是随机生成的、不可枚举。
+              <strong className="text-foreground">检查结果默认不被索引。</strong>生成的结果页带有{" "}
+              <code className="font-mono text-xs">noindex</code> 标记，不会被搜索引擎收录；
+              但请注意：<strong className="text-foreground">未索引不等于有访问权限</strong>——
+              任何拿到该链接的人都能查看，链接为 12 位随机串，不可枚举。请勿提交含敏感信息的网址。
             </li>
             <li>
               <strong className="text-foreground">只有你主动选择公开</strong>

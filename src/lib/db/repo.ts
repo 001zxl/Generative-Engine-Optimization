@@ -72,7 +72,7 @@ export function getToolRunById(id: string): ToolRunRecord | undefined {
     .get(id) as unknown as ToolRunRecord | undefined;
 }
 
-/** 用户主动选择公开后，结果页才允许被索引（默认私有，§6.7 / §13） */
+/** 用户主动选择公开后，结果页才允许被索引（默认 noindex，持链接可访问；§6.7 / §13） */
 export function publishToolRun(id: string): boolean {
   const db = getDb();
   const row = getToolRunById(id);

@@ -15,6 +15,7 @@ import {
   PHANTOM_BOTS,
   CHINA_AI_MECHANISM,
   EVIDENCE_LABEL,
+  ROSTER_UPDATED_AT,
   type BotEvidence,
 } from "../src/lib/checks/bots.ts";
 
@@ -99,5 +100,57 @@ test("关键爬虫必须标注它服务于哪些 AI 产品", () => {
     if (["Googlebot", "Bingbot", "QwenBot"].includes(token)) {
       assert.ok((b.alsoPowers?.length ?? 0) > 0, `${token} 缺少 alsoPowers`);
     }
+  }
+});
+
+/* =========================================================================
+ * 一手来源（sourceUrl / sourceTitle / verifiedAt）
+ *
+ * 这些断言的理由：名册的价值在于"客户能自己复核"。一条无法点回来源的结论，
+ * 与一条抄来的结论没有区别。因此来源不是可选字段。
+ * ========================================================================= */
+
+test("每条都必须带可点击的一手来源与核对日期", () => {
+  for (const b of AI_BOTS) {
+    assert.ok(b.sourceUrl?.startsWith("https://"), `${b.token} 的 sourceUrl 缺失或非 https`);
+    assert.ok(b.sourceTitle?.length > 4, `${b.token} 的 sourceTitle 缺失`);
+    assert.match(b.verifiedAt, /^\d{4}-\d{2}-\d{2}$/, `${b.token} 的 verifiedAt 格式应为 YYYY-MM-DD`);
+  }
+});
+
+test("证据等级必须与来源匹配（不允许张冠李戴）", () => {
+  for (const b of AI_BOTS) {
+    const host = new URL(b.sourceUrl).hostname;
+    if (b.evidence === "vendor") {
+      assert.ok(
+        !host.includes("knownagents.com") && !host.includes("github.com"),
+        `${b.token} 标为「官方文档」，来源却是第三方：${host}`,
+      );
+    }
+    if (b.evidence === "observed") {
+      assert.ok(
+        host.includes("knownagents.com"),
+        `${b.token} 标为「实测观测」，来源应为实测库而非 ${host}`,
+      );
+    }
+    if (b.evidence === "reported") {
+      assert.ok(
+        host.includes("github.com"),
+        `${b.token} 标为「社区清单」，来源应为社区模板而非 ${host}`,
+      );
+    }
+  }
+});
+
+test("虚构 token 条目必须提供可核验的入口", () => {
+  for (const p of PHANTOM_BOTS) {
+    assert.ok(p.verifyUrl?.startsWith("https://"), `${p.token} 缺少 verifyUrl`);
+    assert.ok(p.reality.length > 20, `${p.token} 的说明过短`);
+  }
+});
+
+test("名册的 verifiedAt 不应晚于名册核对日期", () => {
+  for (const b of AI_BOTS) {
+    assert.ok(b.verifiedAt <= ROSTER_UPDATED_AT, `${b.token} 的 verifiedAt 晚于名册核对日期`);
   }
 });

@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { IconArrowRight, IconCircleX, IconAlertTriangle, IconCircleCheck, IconInfoCircle } from "@tabler/icons-react";
+import { IconArrowRight, IconCircleX, IconAlertTriangle, IconCircleCheck, IconInfoCircle, IconExternalLink } from "@tabler/icons-react";
 import { CrawlCheckForm } from "@/components/forms";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -96,6 +96,7 @@ function BotTable({ bots, title, desc }: { bots: typeof AI_BOTS; title: string; 
               <TableHead className="w-28">证据等级</TableHead>
               <TableHead className="w-36">影响 AI 答案可见性</TableHead>
               <TableHead>该索引还服务于</TableHead>
+              <TableHead className="w-20">来源</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -129,6 +130,18 @@ function BotTable({ bots, title, desc }: { bots: typeof AI_BOTS; title: string; 
                 </TableCell>
                 <TableCell className="text-xs text-muted-foreground">
                   {b.alsoPowers?.length ? b.alsoPowers.join("、") : "—"}
+                </TableCell>
+                <TableCell>
+                  <a
+                    href={b.sourceUrl}
+                    target="_blank"
+                    rel="noopener noreferrer nofollow"
+                    title={`${b.sourceTitle}（核对于 ${b.verifiedAt}）`}
+                    className="inline-flex items-center gap-1 text-xs text-primary underline-offset-4 hover:underline"
+                  >
+                    查看
+                    <IconExternalLink className="size-3.5" />
+                  </a>
                 </TableCell>
               </TableRow>
             ))}
@@ -225,6 +238,7 @@ export default function Page() {
               <TableHead className="w-44">token</TableHead>
               <TableHead className="w-40">本该属于</TableHead>
               <TableHead>实际情况</TableHead>
+              <TableHead className="w-20">核验</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -233,6 +247,18 @@ export default function Page() {
                 <TableCell className="align-top font-mono text-xs">{p.token}</TableCell>
                 <TableCell className="align-top text-sm">{p.wouldBe}</TableCell>
                 <TableCell className="align-top text-sm text-muted-foreground">{p.reality}</TableCell>
+                <TableCell className="align-top">
+                  <a
+                    href={p.verifyUrl}
+                    target="_blank"
+                    rel="noopener noreferrer nofollow"
+                    title="打开该链接可自行核验"
+                    className="inline-flex items-center gap-1 text-xs text-primary underline-offset-4 hover:underline"
+                  >
+                    核验
+                    <IconExternalLink className="size-3.5" />
+                  </a>
+                </TableCell>
               </TableRow>
             ))}
           </TableBody>

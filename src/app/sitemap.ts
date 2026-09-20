@@ -3,7 +3,7 @@ import { abs } from "@/lib/site";
 
 /**
  * sitemap 只包含稳定公开页。
- * 用户检查结果页（/r/[id]）永不进入 sitemap —— 它们默认是私有的。
+ * 用户检查结果页（/r/[id]）永不进入 sitemap —— 它们默认不被索引（但持链接可访问）。
  */
 export default function sitemap(): MetadataRoute.Sitemap {
   const now = new Date();

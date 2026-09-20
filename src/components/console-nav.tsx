@@ -6,10 +6,7 @@ import {
   IconLayoutDashboard,
   IconUsers,
   IconHistory,
-  IconBuildingStore,
-  IconHelpCircle,
-  IconFileCheck,
-  IconChartDots,
+  IconRoute,
   IconMicroscope,
 } from "@tabler/icons-react";
 import {
@@ -30,24 +27,16 @@ import { site } from "@/lib/site";
 
 const SECTIONS = [
   {
-    label: "总览",
-    items: [{ href: "/console", label: "可见度总览", icon: IconLayoutDashboard }],
-  },
-  {
-    label: "批次 1 · 已上线",
+    label: "日常运营",
     items: [
+      { href: "/console", label: "可见度总览", icon: IconLayoutDashboard },
       { href: "/console/leads", label: "线索", icon: IconUsers },
       { href: "/console/tool-runs", label: "工具使用记录", icon: IconHistory },
     ],
   },
   {
-    label: "批次 2 · 待建",
-    items: [
-      { href: "/console/brands", label: "品牌与竞品", icon: IconBuildingStore },
-      { href: "/console/questions", label: "问题库", icon: IconHelpCircle },
-      { href: "/console/claims", label: "事实与证据", icon: IconFileCheck },
-      { href: "/console/sampling", label: "采样与评估", icon: IconChartDots },
-    ],
+    label: "产品",
+    items: [{ href: "/console/roadmap", label: "产品路线图", icon: IconRoute }],
   },
 ];
 
@@ -83,21 +72,12 @@ export function ConsoleSidebar() {
             <SidebarMenu>
               {section.items.map((item) => {
                 const active = pathname === item.href;
-                const pending = section.label.includes("待建");
                 return (
                   <SidebarMenuItem key={item.href}>
                     <SidebarMenuButton asChild isActive={active} tooltip={item.label}>
                       <Link href={item.href}>
                         <item.icon className="size-4" />
                         <span>{item.label}</span>
-                        {pending && (
-                          <Badge
-                            variant="secondary"
-                            className="ml-auto h-4 px-1 text-[10px] font-normal group-data-[collapsible=icon]:hidden"
-                          >
-                            批次2
-                          </Badge>
-                        )}
                       </Link>
                     </SidebarMenuButton>
                   </SidebarMenuItem>

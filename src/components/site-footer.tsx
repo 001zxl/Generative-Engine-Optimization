@@ -42,7 +42,7 @@ export function SiteFooter() {
 
         <div className="mt-8 border-t pt-5 text-xs text-muted-foreground">
           本站自身遵守同一套标准：公开页面允许检索型 AI 爬虫抓取，每页声明 canonical 与结构化数据；
-          用户的检查结果默认私有、不被搜索引擎索引。
+          用户的检查结果默认不被搜索引擎索引，但持有链接即可访问。
         </div>
       </div>
     </footer>

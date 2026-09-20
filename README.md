@@ -34,7 +34,7 @@ pnpm build && pnpm start  # http://localhost:3100
 
 ```bash
 pnpm verify                    # 类型检查 + 单元测试 + 构建（一条命令）
-pnpm test                      # 单元测试 27 项（robots 解析 12 + SSRF 7 + 名册不变量 8）
+pnpm test                      # 单元测试 42 项（robots 12 + SSRF 7 + 名册 12 + 配置守卫 11）
 python3 scripts/e2e-check.py   # 端到端业务闭环验收（34 项，需服务已在 3100 运行）
 
 # 视觉验收：对关键页面截图（复用本机已缓存的 Playwright Chromium）
@@ -192,8 +192,13 @@ robots 解析按 **RFC 9309** 自行实现：支持 `*` 通配、`$` 结尾锚�
 | 证据等级 | 含义 | 数量 |
 |---|---|---|
 | 官方文档 | 厂商官方文档或官方公布的 UA 字符串 | 21 |
-| 实测观测 | 有第三方跨站点实测流量数据或服务器日志普遍观测到 | 5 |
-| 社区清单 | 仅见于社区屏蔽清单/公开模板，**未找到官方或实测证据** | 7 |
+| 实测观测 | 第三方跨站点实测流量数据（跨站点监测） | 11 |
+| 社区清单 | 仅见于社区屏蔽清单/公开模板，**未找到官方或实测证据** | 1 |
+
+每条条目还带 `sourceUrl` / `sourceTitle` / `verifiedAt` —— **客户可以点开自己复核**。
+所有链接在 2026-09-20 逐条核验过可访问性，不可访问的候选来源一律不采用。
+名册不变量测试会强制校验「证据等级必须与来源匹配」：官方条目不得引用第三方监测站，
+实测条目不得引用社区模板。
 
 **判定规则**：只有证据等级不是「社区清单」的条目，被屏蔽时才可能判为「严重问题」。
 证据不足的条目一律只作背景信息 —— **我们不会因为一个未经证实的 token 说你的网站有严重问题。**
@@ -284,7 +289,7 @@ geo-growth-engine/
 │   │   ├── methods/page.tsx            # 方法与数据边界
 │   │   ├── console/                    # 内部运营台（shadcn Sidebar + Recharts）
 │   │   │   ├── leads/ tool-runs/       #   已上线
-│   │   │   └── brands/ questions/ claims/ sampling/  # 批次2 占位（无假图表）
+│   │   │   └── roadmap/                #   产品路线图（原 4 个空页面已收敛至此）
 │   │   ├── api/                        # Route Handlers
 │   │   ├── icon.svg                    # favicon（App Router 约定）
 │   │   ├── robots.ts / sitemap.ts
@@ -316,36 +321,93 @@ geo-growth-engine/
 ├── tests/
 │   ├── robots.test.ts                  # robots RFC 9309 解析（12 项）
 │   ├── ssrf.test.ts                    # SSRF 防护（7 项）
-│   └── bots.test.ts                    # 爬虫名册不变量（8 项）
+│   ├── bots.test.ts                    # 爬虫名册不变量（12 项）
+│   └── config-guard.test.ts            # 生产配置守卫（11 项）
 └── scripts/
     ├── e2e-check.py                    # 34 项端到端验收
+    ├── preflight.ts                    # 启动前配置守卫（build/start 前置）
     └── screenshot.mjs                  # 视觉验收（截图 + 溢出与控制台错误检查）
 ```
 
 ---
 
-## 10. 批次 2 待建（对应架构文档 §6.3–6.6 / §6.10–6.12）
+## 10. 待补的核心业务链（产品路线图）
 
-数据表已建好，缺的是 UI 与流程：
+目前**真正在工作的只有两个检测工具**。要形成完整的 GEO 获客推广系统，还需要补齐：
 
-1. 品牌 / 业务线 / 竞品管理
-2. 问题库（Query Set 版本化与冻结）
-3. 品牌事实库、证据库与禁用表述
-4. 内容 Brief → 草稿 → 审核 → 发布
-5. **多平台采样任务与手工粘贴录入**（MVP 阶段不做自动抓取）
-6. 提及 / 位置 / 引用 / 竞品 / 事实一致性评估
-7. 可见度看板（提及率、首推率、Share of Voice、自有域引用率）
-8. 推广渠道与信源分发任务、URL 回填
+```
+品牌/竞品 → 问题库 → 事实与证据库 → 多平台采样 → 评估 → 内容任务 → 获客归因
+```
 
-运营台首页目前显式标注了这四项为"批次 2"——宁可明确标缺，也不放占位图表。
+| # | 模块 | 关键点 | 已就位的数据表 |
+|---|---|---|---|
+| 1 | 品牌实体、别名、业务线、竞品 | 后续所有环节的判定基准 | `brands` `brand_aliases` `competitors` |
+| 2 | 客户问题库 | Persona / 意图 / 漏斗阶段 / 地区；**Query Set 冻结**（冻结版本只能新建版本，不能直接编辑） | `query_sets` `questions` `personas` `prompt_variants` |
+| 3 | 品牌事实与证据库 | Claim 审核、来源链接、证据等级、有效期、禁用表述 | `claims` `claim_versions` `evidences` `prohibited_phrases` |
+| 4 | 多平台采样 | **先人工粘贴 + CSV 导入**，再考虑官方 API；保存原始答案 / 引用 URL / 时间 / 地区 / 模型版本 / 采样方式 | `engines` `sampling_runs` `response_samples` `response_citations` |
+| 5 | 评估体系 | 提及率、首推率、Share of Voice、自有域引用率、事实一致性；全部可回溯原始样本 | `response_mentions` `evaluation_results` `human_reviews` `metric_snapshots` |
+| 6 | 内容任务 | 从问题缺口生成 Brief，绑定已批准证据，记录发布 URL 与渠道 | `content_briefs` `content_assets` `publication_tasks` `publications` |
+| 7 | 获客归因 | 工具使用 → 分享 → 留资 → 跟进 → 成交；First Touch / Last Non-direct / 自述来源 | `leads` `lead_touchpoints` `lead_status_history` `events` |
+
+数据表已在批次 1 一次性建齐，批次 2 可直接写入，**不需要中途迁移**。
+
+模块范围、依赖与状态见运营台的 **`/console/roadmap` 产品路线图**。
+（早期版本把这四个入口散在运营导航里，点进去都是空页面 —— 已收敛为路线图一页。）
 
 ---
 
 ## 11. 已知限制
 
-- **本机沙箱内的外部抓取受限**：部分域名（如 nytimes.com、reddit.com）在此环境被 DNS
-  代理解析到内网地址，会被 SSRF 防护正确拒绝。换到正常网络环境即可抓取。
+- **只检查「爬虫规则」，不监测各平台的实际回答内容。** 它读 robots.txt 与页面 HTML，
+  判断的是「检索型爬虫能不能取到你、内容是否容易被摘录」。它**不会**去问 ChatGPT / 豆包 / 千问
+  「你推荐哪家供应商」，因此也无法告诉你品牌在某平台的答案里有没有被提到 —— 那属于第 4、5 号模块。
+- **本机沙箱内的外部抓取受限**：本机网络走透明代理，大量外网域名被解析到 `198.18.0.0/15`，
+  默认会被 SSRF 防护拒绝（这是正确行为）。本地测试需在 `.env` 中配置 `EXTRA_TRUSTED_CIDRS`，
+  详见 §3 环境变量。**正式部署请勿设置该项。**
 - 只分析初始 HTML，不执行页面脚本（这正是「正文可提取性」要测的东西）。
 - 只检查提交的单个 URL 与同源 robots.txt / sitemap，不遍历全站。
 - 绝对化表述词表是启发式，会有误报（如「第一时间」）；结果页会列出命中原文供人工判断。
-- 运营台暂无登录鉴权（批次 1 单工作区本地使用）；上线到公网前必须补上。
+- 爬虫名册的证据等级取决于公开可得来源，`reported` 级条目（当前 1 条）不参与严重判定。
+- 运营台暂无登录鉴权；上线到公网前必须补上（见 §12.2）。
+
+---
+
+## 12. 部署约束（上线前必读）
+
+### 12.1 启动前配置守卫
+
+`pnpm build` 与 `pnpm start` 之前会先跑 `scripts/preflight.ts`。检测到以下情况会**拒绝启动**（不是警告）：
+
+| 检查项 | 为什么是硬门槛 |
+|---|---|
+| `APP_BASE_URL` 指向本机（`localhost` / `127.0.0.1` / `*.local` / `*.internal`） | canonical / OpenGraph / sitemap 全部由它派生。带 localhost 上线 = 告诉搜索引擎与 AI 爬虫「本站规范地址是本机」，收录与引用全面错乱 |
+| `APP_BASE_URL` 未设置或非法 | 同上，会静默退回默认值 |
+| `CONTACT_EMAIL` 仍是占位邮箱（`hello@example.com` 等）或格式错误 | 线索表单提交后无人接收 |
+| `DATABASE_PATH` 为空字符串 | 会导致数据库落到意外位置 |
+
+`APP_BASE_URL` 使用 `http:` 只警告不阻断（内网与预发环境可能确实如此）。
+
+本地以生产模式自测时，在 `.env` 中加入 `ALLOW_INSECURE_DEFAULTS=1` 跳过校验；
+**正式部署环境不得设置该项**。校验逻辑是纯函数（`src/lib/config-guard.ts`），有 11 项单测覆盖
+—— 一个"看起来有守护、其实不生效"的配置校验，比没有校验更危险。
+
+### 12.2 当前架构的部署前提：单机 + 持久磁盘
+
+| 组件 | 现状 | 限制 | 多实例前必须替换为 |
+|---|---|---|---|
+| 数据库 | Node 内置 `node:sqlite`（单文件） | **只适用于单机且磁盘持久**。容器无状态重建 / 多副本会各写各的库，或直接丢数据 | PostgreSQL + 迁移系统 |
+| 限流 | 进程内内存计数（`src/lib/rate-limit.ts`） | 多实例下限流额度按实例数放大，等于限流失效 | Redis 限流 |
+| 文件/导出 | 无对象存储，报告即时生成 | 目前不存大文件，暂无影响 | S3 兼容存储 |
+| 鉴权 | **无** | `/console` 无任何鉴权，任何能访问部署地址的人都能看到全部线索 | 登录 + 角色权限 |
+
+**结论**：当前版本适合「单台 VPS + 持久磁盘」或本地/内网部署。
+若要用无状态容器或多副本横向扩展，必须先完成上表第 1、2 项。
+
+### 12.3 上线前检查清单
+
+- [ ] 替换 `APP_BASE_URL` 为真实域名（建议 https）
+- [ ] 替换 `CONTACT_EMAIL` 为真实可收信邮箱
+- [ ] 确认 `.env` 中**没有** `ALLOW_INSECURE_DEFAULTS`
+- [ ] 删除 `.env` 中的 `EXTRA_TRUSTED_CIDRS`（除非你的网络确实走透明代理）
+- [ ] 为 `/console` 补上登录鉴权
+- [ ] 配置数据备份（`data/geo.db` 是唯一的数据文件）
