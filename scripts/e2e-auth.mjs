@@ -11,7 +11,14 @@ import os from "node:os";
 import path from "node:path";
 
 const BASE = process.argv[2] ?? "http://localhost:3100";
-const PASSWORD = process.argv[3] ?? "geo-console-local-dev";
+// 口令必须显式传入，不设默认值 —— 测试脚本会进公开仓库，
+// 硬编码默认口令等于把凭据写进版本库（AGENTS.md 明令禁止）。
+const PASSWORD = process.argv[3] ?? process.env.CONSOLE_PASSWORD;
+if (!PASSWORD) {
+  console.error("用法：node scripts/e2e-auth.mjs <baseUrl> <password>");
+  console.error("  或设置环境变量 CONSOLE_PASSWORD");
+  process.exit(2);
+}
 const EXE = path.join(
   os.homedir(),
   "Library/Caches/ms-playwright/chromium-1234/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing",

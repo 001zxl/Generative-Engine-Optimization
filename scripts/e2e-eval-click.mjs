@@ -37,7 +37,12 @@ const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, l
 const page = await ctx.newPage();
 
 /* —— 运营台现在需要登录，先建立会话 —— */
-const PASSWORD = process.env.CONSOLE_PASSWORD ?? "geo-console-local-dev";
+// 同 e2e-auth.mjs：不设默认口令
+const PASSWORD = process.env.CONSOLE_PASSWORD;
+if (!PASSWORD) {
+  console.error("需要 CONSOLE_PASSWORD 环境变量才能登录运营台。");
+  process.exit(2);
+}
 await page.goto(`${BASE}/console/login`, { waitUntil: "load", timeout: 45000 });
 await page.fill('input[name="password"]', PASSWORD);
 await page.click('button[type="submit"]');

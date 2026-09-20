@@ -59,7 +59,7 @@ python3 scripts/e2e-check.py   # 公开端 + 运营台验收（34 项，需服�
 node scripts/e2e-chain.ts      # 核心业务链集成测试（51 项，用临时库，不碰 data/geo.db）
 
 # 运营台鉴权（浏览器级，26 项）
-pnpm e2e:auth http://localhost:3100 $CONSOLE_PASSWORD
+CONSOLE_PASSWORD=... pnpm e2e:auth http://localhost:3100
 
 # 评估页浏览器级回归（复现并验证 P0 外键缺陷已修，13 项）
 node scripts/fixture-for-eval-test.ts /tmp/fx.db
