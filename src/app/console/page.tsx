@@ -160,14 +160,14 @@ export default function ConsoleHome() {
         </Card>
       </div>
 
-      {/* ---------- 待建 ---------- */}
+      {/* ---------- 核心链路 ---------- */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">待补的核心业务链</CardTitle>
+          <CardTitle className="text-base">核心业务链</CardTitle>
           <CardDescription>
-            当前真正在工作的只有两个检测工具。完整的 GEO 系统还需要这条链路：
-            <span className="font-mono text-xs"> 问题库 → 证据库 → 采样 → 评估 → 内容任务 → 归因</span>。
-            具体范围、依赖与已就位的数据表见产品路线图。
+            七个模块已按依赖顺序上线：
+            <span className="font-mono text-xs"> 品牌 → 问题库 → 事实库 → 采样 → 评估 → 内容 → 归因</span>。
+            下面五个问题现在都有对应的模块可以回答了。
           </CardDescription>
         </CardHeader>
         <CardContent className="px-0">
@@ -175,44 +175,43 @@ export default function ConsoleHome() {
             <TableHeader>
               <TableRow>
                 <TableHead className="w-2/5 pl-6">运营台首页要回答的问题</TableHead>
-                <TableHead>依赖</TableHead>
+                <TableHead>对应模块</TableHead>
                 <TableHead className="pr-6">状态</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {[
-                ["1. 品牌目前在哪些问题中出现？", "问题库 + 多平台采样 + 提及抽取"],
-                ["2. 哪些竞品比品牌出现得更多？", "竞品库 + Share of Voice 计算"],
-                ["3. AI 主要引用哪些来源？", "引用抽取 + 域名归类"],
-                ["4. 接下来最值得生产和推广什么内容？", "机会分算法（架构文档 §12.3）"],
-              ].map(([q, dep]) => (
+                ["1. 品牌目前在哪些问题中出现？", "问题库 → 多平台采样 → 评估与指标", "/console/evaluation"],
+                ["2. 哪些竞品比品牌出现得更多？", "品牌与竞品 + Share of Voice", "/console/evaluation"],
+                ["3. AI 主要引用哪些来源？", "评估与指标（引用抽取）", "/console/evaluation"],
+                ["4. 接下来最值得生产和推广什么内容？", "内容与推广（Brief 与缺口）", "/console/content"],
+                ["5. 这些内容有没有带来访问和咨询？", "工具使用 + 事件 + 获客归因", "/console/attribution"],
+              ].map(([q, dep, href]) => (
                 <TableRow key={q}>
                   <TableCell className="pl-6 font-medium">{q}</TableCell>
-                  <TableCell className="text-muted-foreground">{dep}</TableCell>
+                  <TableCell className="text-muted-foreground">
+                    <Link href={href} className="text-primary underline-offset-4 hover:underline">
+                      {dep}
+                    </Link>
+                  </TableCell>
                   <TableCell className="pr-6">
-                    <Badge variant="secondary" className="font-normal">
-                      待建
+                    <Badge variant="outline" className="border-ok/25 bg-ok-soft font-normal text-ok">
+                      已上线
                     </Badge>
                   </TableCell>
                 </TableRow>
               ))}
-              <TableRow>
-                <TableCell className="pl-6 font-medium">5. 这些内容有没有带来访问和咨询？</TableCell>
-                <TableCell className="text-muted-foreground">工具使用 + 事件 + 线索归因</TableCell>
-                <TableCell className="pr-6">
-                  <Badge variant="outline" className="border-ok/25 bg-ok-soft font-normal text-ok">
-                    已上线
-                  </Badge>
-                </TableCell>
-              </TableRow>
             </TableBody>
           </Table>
-          <div className="px-6 pt-4">
+          <div className="flex flex-wrap gap-2 px-6 pt-4">
             <Button asChild variant="outline" size="sm">
-              <Link href="/console/roadmap">
-                查看产品路线图
+              <Link href="/console/brands">
                 <IconArrowRight className="size-3.5" />
+                从「品牌与竞品」开始
               </Link>
+            </Button>
+            <Button asChild variant="ghost" size="sm">
+              <Link href="/console/roadmap">查看产品路线图</Link>
             </Button>
           </div>
         </CardContent>

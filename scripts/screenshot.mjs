@@ -19,6 +19,7 @@ const BASE = process.env.SCREENSHOT_BASE ?? "http://localhost:3100";
 const OUT = path.join(process.cwd(), "screenshots");
 
 const only = process.argv[2];
+const viewportOnly = process.env.VIEWPORT_ONLY === "1";
 
 const PAGES = [
   { name: "home", url: "/", full: true },
@@ -26,6 +27,14 @@ const PAGES = [
   { name: "tool-citability", url: "/tools/citation-readiness", full: true },
   { name: "methods", url: "/methods", full: true },
   { name: "console", url: "/console", full: true },
+  { name: "console-roadmap", url: "/console/roadmap", full: true },
+  { name: "m1-brands", url: "/console/brands", full: true },
+  { name: "m2-questions", url: "/console/questions", full: true },
+  { name: "m3-claims", url: "/console/claims", full: true },
+  { name: "m4-sampling", url: "/console/sampling", full: true },
+  { name: "m5-evaluation", url: "/console/evaluation", full: true },
+  { name: "m6-content", url: "/console/content", full: true },
+  { name: "m7-attribution", url: "/console/attribution", full: true },
   { name: "console-leads", url: "/console/leads", full: true },
   { name: "console-tool-runs", url: "/console/tool-runs", full: true },
   // 结果页需要真实 slug，由调用方通过 RESULT_SLUG 传入
@@ -67,7 +76,7 @@ for (const p of targets) {
   await page.waitForTimeout(1500);
 
   const file = path.join(OUT, `${p.name}.png`);
-  await page.screenshot({ path: file, fullPage: p.full });
+  await page.screenshot({ path: file, fullPage: p.full && !viewportOnly });
 
   // 横向溢出检查（响应式最常见的可见缺陷）
   const overflow = await page.evaluate(

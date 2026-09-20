@@ -1,6 +1,6 @@
-import { getDb, workspaceId, audit } from "./index";
-import { newId, shareSlug, sha256 } from "../id";
-import type { CheckResult } from "../checks/types";
+import { getDb, workspaceId, audit } from "./index.ts";
+import { newId, shareSlug, sha256 } from "../id.ts";
+import type { CheckResult } from "../checks/types.ts";
 
 export interface ToolRunRecord {
   id: string;

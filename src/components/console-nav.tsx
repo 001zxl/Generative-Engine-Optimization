@@ -7,6 +7,13 @@ import {
   IconUsers,
   IconHistory,
   IconRoute,
+  IconBuildingStore,
+  IconHelpCircle,
+  IconFileCheck,
+  IconClipboardText,
+  IconChartDots,
+  IconFileText,
+  IconChartHistogram,
   IconMicroscope,
 } from "@tabler/icons-react";
 import {
@@ -22,21 +29,41 @@ import {
   SidebarRail,
   SidebarSeparator,
 } from "@/components/ui/sidebar";
-import { Badge } from "@/components/ui/badge";
 import { site } from "@/lib/site";
 
+/**
+ * 侧边栏按「使用顺序」组织，而不是按字母或功能分类 ——
+ * 核心链路那六项本身就是一条流水线，顺序错了就没法用。
+ */
 const SECTIONS = [
   {
-    label: "日常运营",
+    label: "总览",
+    items: [{ href: "/console", label: "可见度总览", icon: IconLayoutDashboard }],
+  },
+  {
+    label: "核心链路",
     items: [
-      { href: "/console", label: "可见度总览", icon: IconLayoutDashboard },
-      { href: "/console/leads", label: "线索", icon: IconUsers },
-      { href: "/console/tool-runs", label: "工具使用记录", icon: IconHistory },
+      { href: "/console/brands", label: "1 · 品牌与竞品", icon: IconBuildingStore },
+      { href: "/console/questions", label: "2 · 问题库", icon: IconHelpCircle },
+      { href: "/console/claims", label: "3 · 事实与证据", icon: IconFileCheck },
+      { href: "/console/sampling", label: "4 · 多平台采样", icon: IconClipboardText },
+      { href: "/console/evaluation", label: "5 · 评估与指标", icon: IconChartDots },
+      { href: "/console/content", label: "6 · 内容与推广", icon: IconFileText },
     ],
   },
   {
-    label: "产品",
-    items: [{ href: "/console/roadmap", label: "产品路线图", icon: IconRoute }],
+    label: "获客",
+    items: [
+      { href: "/console/leads", label: "线索", icon: IconUsers },
+      { href: "/console/attribution", label: "7 · 获客归因", icon: IconChartHistogram },
+    ],
+  },
+  {
+    label: "其他",
+    items: [
+      { href: "/console/tool-runs", label: "工具使用记录", icon: IconHistory },
+      { href: "/console/roadmap", label: "产品路线图", icon: IconRoute },
+    ],
   },
 ];
 
@@ -70,19 +97,16 @@ export function ConsoleSidebar() {
           <SidebarGroup key={section.label}>
             <SidebarGroupLabel>{section.label}</SidebarGroupLabel>
             <SidebarMenu>
-              {section.items.map((item) => {
-                const active = pathname === item.href;
-                return (
-                  <SidebarMenuItem key={item.href}>
-                    <SidebarMenuButton asChild isActive={active} tooltip={item.label}>
-                      <Link href={item.href}>
-                        <item.icon className="size-4" />
-                        <span>{item.label}</span>
-                      </Link>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                );
-              })}
+              {section.items.map((item) => (
+                <SidebarMenuItem key={item.href}>
+                  <SidebarMenuButton asChild isActive={pathname === item.href} tooltip={item.label}>
+                    <Link href={item.href}>
+                      <item.icon className="size-4" />
+                      <span>{item.label}</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
             </SidebarMenu>
           </SidebarGroup>
         ))}

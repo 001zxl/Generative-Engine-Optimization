@@ -122,10 +122,23 @@ st, d = post("/api/leads", {"email": "bot@spam.com", "honeypot": "x"})
 check("蜜罐字段生效（静默吞掉不落库）", st == 200, st)
 
 print("\n[6] 运营台")
+# 七个核心模块必须全部可达
+for path, key in [
+    ("/console/brands", "品牌与竞品"),
+    ("/console/questions", "问题集"),
+    ("/console/claims", "事实清单"),
+    ("/console/sampling", "多平台采样"),
+    ("/console/evaluation", "核心指标"),
+    ("/console/content", "内容资产"),
+    ("/console/attribution", "获客归因"),
+]:
+    st, h = get(path)
+    check(f"模块 {path} 可访问且内容正确", st == 200 and key in h, f"HTTP {st}")
+
 st, html = get("/console")
 check("总览 200", st == 200, st)
 check("展示了第 5 问（访问与咨询）", "带来访问和咨询" in html)
-check("未实现的 4 问标注为待建", "待建" in html)
+check("运营台首页展示完整核心链路", "核心业务链" in html and "品牌 → 问题库 → 事实库 → 采样 → 评估 → 内容 → 归因" in html)
 st, html = get("/console/leads")
 check("线索页 200", st == 200, st)
 check("线索已落库并可见", "buyer@example-eu.com" in html, "")

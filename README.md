@@ -34,8 +34,9 @@ pnpm build && pnpm start  # http://localhost:3100
 
 ```bash
 pnpm verify                    # 类型检查 + 单元测试 + 构建（一条命令）
-pnpm test                      # 单元测试 42 项（robots 12 + SSRF 7 + 名册 12 + 配置守卫 11）
-python3 scripts/e2e-check.py   # 端到端业务闭环验收（34 项，需服务已在 3100 运行）
+pnpm test                      # 单元测试 63 项（robots 12 + SSRF 7 + 名册 12 + 配置守卫 11 + 评估引擎 21）
+python3 scripts/e2e-check.py   # 公开端 + 运营台验收（34 项，需服务已在 3100 运行）
+node scripts/e2e-chain.ts      # 核心业务链集成测试（42 项，用临时库，不碰 data/geo.db）
 
 # 视觉验收：对关键页面截图（复用本机已缓存的 Playwright Chromium）
 RESULT_SLUG=xxxx pnpm screenshot
@@ -288,8 +289,12 @@ geo-growth-engine/
 │   │   ├── r/[id]/page.tsx             # 可分享结果页（最重要的传播页，分页式）
 │   │   ├── methods/page.tsx            # 方法与数据边界
 │   │   ├── console/                    # 内部运营台（shadcn Sidebar + Recharts）
-│   │   │   ├── leads/ tool-runs/       #   已上线
-│   │   │   └── roadmap/                #   产品路线图（原 4 个空页面已收敛至此）
+│   │   │   ├── brands/ questions/ claims/     # 核心链路 1-3
+│   │   │   ├── sampling/ evaluation/          # 核心链路 4-5
+│   │   │   ├── content/ attribution/          # 核心链路 6-7
+│   │   │   ├── leads/ tool-runs/              # 线索与工具记录
+│   │   │   ├── actions.ts                     # 全部 Server Actions
+│   │   │   └── roadmap/                       # 产品路线图
 │   │   ├── api/                        # Route Handlers
 │   │   ├── icon.svg                    # favicon（App Router 约定）
 │   │   ├── robots.ts / sitemap.ts
@@ -314,7 +319,9 @@ geo-growth-engine/
 │       ├── db/
 │       │   ├── schema.ts               # 全部表结构（含批次 2 预留）
 │       │   ├── index.ts                # node:sqlite 连接与审计日志
-│       │   └── repo.ts                 # 全部 SQL 集中在此（便于切 Postgres）
+│       │   ├── repo.ts                 # 工具 / 线索 / 统计
+│       │   └── repo-domains.ts         # 七个业务模块的数据访问
+│       ├── evaluation.ts                # ★ 评估引擎（纯函数，可单测）
 │       ├── status.ts                   # 状态 → 视觉映射（不散落到页面）
 │       ├── rate-limit.ts
 │       └── site.ts
@@ -325,34 +332,42 @@ geo-growth-engine/
 │   └── config-guard.test.ts            # 生产配置守卫（11 项）
 └── scripts/
     ├── e2e-check.py                    # 34 项端到端验收
+    ├── e2e-chain.ts                    # 核心业务链集成测试（42 项）
     ├── preflight.ts                    # 启动前配置守卫（build/start 前置）
     └── screenshot.mjs                  # 视觉验收（截图 + 溢出与控制台错误检查）
 ```
 
 ---
 
-## 10. 待补的核心业务链（产品路线图）
-
-目前**真正在工作的只有两个检测工具**。要形成完整的 GEO 获客推广系统，还需要补齐：
+## 10. 核心业务链（七个模块，已全部上线）
 
 ```
-品牌/竞品 → 问题库 → 事实与证据库 → 多平台采样 → 评估 → 内容任务 → 获客归因
+品牌 → 问题库 → 事实库 → 采样 → 评估 → 内容 → 归因
 ```
 
-| # | 模块 | 关键点 | 已就位的数据表 |
+| # | 模块 | 路由 | 关键点 |
 |---|---|---|---|
-| 1 | 品牌实体、别名、业务线、竞品 | 后续所有环节的判定基准 | `brands` `brand_aliases` `competitors` |
-| 2 | 客户问题库 | Persona / 意图 / 漏斗阶段 / 地区；**Query Set 冻结**（冻结版本只能新建版本，不能直接编辑） | `query_sets` `questions` `personas` `prompt_variants` |
-| 3 | 品牌事实与证据库 | Claim 审核、来源链接、证据等级、有效期、禁用表述 | `claims` `claim_versions` `evidences` `prohibited_phrases` |
-| 4 | 多平台采样 | **先人工粘贴 + CSV 导入**，再考虑官方 API；保存原始答案 / 引用 URL / 时间 / 地区 / 模型版本 / 采样方式 | `engines` `sampling_runs` `response_samples` `response_citations` |
-| 5 | 评估体系 | 提及率、首推率、Share of Voice、自有域引用率、事实一致性；全部可回溯原始样本 | `response_mentions` `evaluation_results` `human_reviews` `metric_snapshots` |
-| 6 | 内容任务 | 从问题缺口生成 Brief，绑定已批准证据，记录发布 URL 与渠道 | `content_briefs` `content_assets` `publication_tasks` `publications` |
-| 7 | 获客归因 | 工具使用 → 分享 → 留资 → 跟进 → 成交；First Touch / Last Non-direct / 自述来源 | `leads` `lead_touchpoints` `lead_status_history` `events` |
+| 1 | 品牌与竞品 | `/console/brands` | 品牌名 / 别名 / 错误拼写、品牌域名、竞品 |
+| 2 | 问题库 | `/console/questions` | 批量录入、Persona / 意图 / 漏斗阶段；**Query Set 冻结**（冻结后只能新建版本） |
+| 3 | 事实与证据 | `/console/claims` | Claim 审核、证据绑定与证据等级、有效期、禁用表述、**冲突检测** |
+| 4 | 多平台采样 | `/console/sampling` | 「问题 × 引擎 × 重复次数」生成任务；**人工粘贴 + CSV 导入**；幂等键防重复 |
+| 5 | 评估与指标 | `/console/evaluation` | 提及 / 列表排名 / 引用 / 事实一致性；四个核心指标 |
+| 6 | 内容与推广 | `/console/content` | Brief → 内容 → 绑定问题与已批准事实 → 审核 → 发布 → 回填 URL |
+| 7 | 获客归因 | `/console/attribution` | 状态流转与历史、人工补记触点、三种归因口径并列 |
 
-数据表已在批次 1 一次性建齐，批次 2 可直接写入，**不需要中途迁移**。
+**38 张数据表**在 schema 中一次性定义，全部 `CREATE TABLE IF NOT EXISTS`，可重复执行。
 
-模块范围、依赖与状态见运营台的 **`/console/roadmap` 产品路线图**。
-（早期版本把这四个入口散在运营导航里，点进去都是空页面 —— 已收敛为路线图一页。）
+> ⚠️ 更正记录：更早版本的路线图曾声称"数据表已按架构文档建好"，但实际上当时
+> 36 张里缺 25 张。这是一处未经验证的断言 —— 与本项目一贯要求的"结论可复核"相悖，
+> 现已补齐并在路线图页面留痕。
+
+### 评估引擎的设计约束（`src/lib/evaluation.ts`）
+
+1. **一切结论可回到原文**：每条提及都带字符偏移与上下文片段，指标分子分母可追溯到样本。
+2. **不确定就标不确定**：情感与事实判定是启发式，一律带 confidence；事实冲突一律进人工复核队列。
+3. **分母为 0 显示「无法计算」而不是 0** —— 0 会被误读成"表现差"。
+4. **不合并不可比样本**：不同采样方式（消费者界面 / 官方 API）、不同问题版本、不同地区不直接混算。
+5. **不做多触点加权归因**：那个权重表没有行业数据支撑，只会产出"看似精确、实则不可验证"的数字。
 
 ---
 

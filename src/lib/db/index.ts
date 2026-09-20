@@ -1,8 +1,8 @@
 import { DatabaseSync } from "node:sqlite";
 import fs from "node:fs";
 import path from "node:path";
-import { SCHEMA_SQL, DEFAULT_WORKSPACE } from "./schema";
-import { newId } from "../id";
+import { SCHEMA_SQL, DEFAULT_WORKSPACE } from "./schema.ts";
+import { newId } from "../id.ts";
 
 declare global {
   // eslint-disable-next-line no-var
