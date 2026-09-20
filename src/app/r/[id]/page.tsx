@@ -104,11 +104,18 @@ interface CrawlerMeta {
       operator: string;
       purpose: string;
       impactsAiAnswers: boolean;
+      evidence: "vendor" | "observed" | "reported";
+      evidenceLabel: string;
+      region: "global" | "cn";
       allowed: boolean;
       reason: string;
       note: string;
+      alsoPowers: string[];
+      aggressive: boolean;
     }>;
   };
+  chinaMechanism?: Array<{ product: string; lever: string; detail: string }>;
+  roster?: { updatedAt: string; total: number; phantomChecked: number };
   sitemap?: Array<{ url: string; status: number | null; ok: boolean; containsTarget: boolean | null }>;
 }
 
@@ -359,6 +366,7 @@ export default async function ResultPage({ params }: Props) {
                           <TableHead className="pl-6">User-agent</TableHead>
                           <TableHead>运营方</TableHead>
                           <TableHead>类型</TableHead>
+                          <TableHead>证据</TableHead>
                           <TableHead>状态</TableHead>
                           <TableHead className="pr-6">判定依据</TableHead>
                         </TableRow>
@@ -366,26 +374,98 @@ export default async function ResultPage({ params }: Props) {
                       <TableBody>
                         {crawler.robots.verdicts.map((v) => (
                           <TableRow key={v.token}>
-                            <TableCell className="pl-6 font-mono text-xs">{v.token}</TableCell>
-                            <TableCell>{v.operator}</TableCell>
-                            <TableCell className="text-muted-foreground">
+                            <TableCell className="pl-6 font-mono text-xs">
+                              {v.token}
+                              {v.aggressive && (
+                                <Badge variant="outline" className="ml-1.5 border-warn/25 bg-warn-soft text-warn">
+                                  激进
+                                </Badge>
+                              )}
+                              {v.region === "cn" && (
+                                <Badge variant="outline" className="ml-1.5 text-muted-foreground">
+                                  中国
+                                </Badge>
+                              )}
+                            </TableCell>
+                            <TableCell className="text-sm">{v.operator}</TableCell>
+                            <TableCell className="text-sm text-muted-foreground">
                               {v.purpose}
                               {v.impactsAiAnswers && (
                                 <Badge variant="outline" className="ml-1.5 border-fail/25 bg-fail-soft text-fail">
                                   影响可见性
                                 </Badge>
                               )}
+                              {v.alsoPowers.length > 0 && (
+                                <div className="mt-1 text-xs">服务于：{v.alsoPowers.join("、")}</div>
+                              )}
+                            </TableCell>
+                            <TableCell>
+                              <Badge
+                                variant="outline"
+                                className={
+                                  v.evidence === "vendor"
+                                    ? "border-ok/25 bg-ok-soft text-ok"
+                                    : v.evidence === "observed"
+                                      ? "border-primary/25 bg-brand-soft text-primary"
+                                      : "text-muted-foreground"
+                                }
+                              >
+                                {v.evidenceLabel}
+                              </Badge>
                             </TableCell>
                             <TableCell>
                               {v.allowed ? (
                                 <StatusBadge status="pass" short />
-                              ) : v.impactsAiAnswers ? (
+                              ) : v.impactsAiAnswers && v.evidence !== "reported" ? (
                                 <StatusBadge status="fail" short />
                               ) : (
                                 <StatusBadge status="info" short />
                               )}
                             </TableCell>
                             <TableCell className="pr-6 text-xs text-muted-foreground">{v.reason}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                    <p className="mt-3 px-6 text-xs text-muted-foreground">
+                      「证据」表示这条数据的可信程度：官方文档 / 实测观测 / 社区清单。
+                      证据等级为「社区清单」的条目只作背景信息，<strong>不参与严重级别判定</strong>。
+                      {crawler.roster && (
+                        <>
+                          {" "}
+                          名册最后核对 <span className="font-mono">{crawler.roster.updatedAt}</span>，共{" "}
+                          {crawler.roster.total} 条。
+                        </>
+                      )}
+                    </p>
+                  </CardContent>
+                </Card>
+              )}
+
+              {crawler.chinaMechanism && crawler.chinaMechanism.length > 0 && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base">国内 AI 平台的检索通道</CardTitle>
+                    <CardDescription>
+                      国产 AI 助手多复用母公司搜索索引。想在国内平台被引用，要维护的是下面这些通道，
+                      而不是一个以 AI 产品命名的爬虫。
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="px-0">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="w-56 pl-6">AI 产品</TableHead>
+                          <TableHead className="w-52">真正的杠杆点</TableHead>
+                          <TableHead className="pr-6">机制</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {crawler.chinaMechanism.map((m) => (
+                          <TableRow key={m.product}>
+                            <TableCell className="pl-6 font-medium">{m.product}</TableCell>
+                            <TableCell className="font-mono text-xs text-primary">{m.lever}</TableCell>
+                            <TableCell className="pr-6 text-xs text-muted-foreground">{m.detail}</TableCell>
                           </TableRow>
                         ))}
                       </TableBody>

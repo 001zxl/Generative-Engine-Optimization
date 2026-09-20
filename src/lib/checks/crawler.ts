@@ -10,19 +10,24 @@
 import * as cheerio from "cheerio";
 import { fetchPage, fetchText, normalizeUrl, originOf } from "../net/fetch-page";
 import { parseRobots, isAllowed, declaredSitemaps, type ParsedRobots } from "../net/robots";
-import { AI_BOTS, CRITICAL_BOTS, PURPOSE_LABEL, type AiBot } from "./bots";
+import { AI_BOTS, CRITICAL_BOTS, PURPOSE_LABEL, EVIDENCE_LABEL, PHANTOM_BOTS, CHINA_AI_MECHANISM, ROSTER_UPDATED_AT, type AiBot, type BotEvidence, type BotRegion } from "./bots";
 import { DISCLAIMER, summarize, type CheckResult, type Finding } from "./types";
 
-export const CRAWLER_VERSION = "0.1.0";
+export const CRAWLER_VERSION = "0.2.0";
 
 interface BotVerdict {
   token: string;
   operator: string;
   purpose: string;
   impactsAiAnswers: boolean;
+  evidence: BotEvidence;
+  evidenceLabel: string;
+  region: BotRegion;
   allowed: boolean;
   reason: string;
   note: string;
+  alsoPowers: string[];
+  aggressive: boolean;
 }
 
 export async function runCrawlerCheck(rawUrl: string): Promise<CheckResult> {
@@ -315,9 +320,14 @@ export async function runCrawlerCheck(rawUrl: string): Promise<CheckResult> {
         operator: bot.operator,
         purpose: PURPOSE_LABEL[bot.purpose],
         impactsAiAnswers: bot.impactsAiAnswers,
+        evidence: bot.evidence,
+        evidenceLabel: EVIDENCE_LABEL[bot.evidence],
+        region: bot.region,
         allowed: v.allowed,
         reason: v.reason,
         note: bot.note,
+        alsoPowers: bot.alsoPowers ?? [],
+        aggressive: bot.aggressive ?? false,
       };
     });
 
@@ -355,8 +365,11 @@ export async function runCrawlerCheck(rawUrl: string): Promise<CheckResult> {
       });
     }
 
-    // 4a. 决定 AI 答案可见性的爬虫 —— 这是"严重"级别
-    const blockedCritical = verdicts.filter((v) => v.impactsAiAnswers && !v.allowed);
+    // 4a. 决定 AI 答案可见性的爬虫 —— 这是"严重"级别。
+    //     注意：证据等级为 reported 的条目一律不参与严重判定（我们不确定它是否真实存在）。
+    const blockedCritical = verdicts.filter(
+      (v) => v.impactsAiAnswers && v.evidence !== "reported" && !v.allowed,
+    );
     if (blockedCritical.length > 0) {
       findings.push({
         id: "ai-search-bots",
@@ -369,7 +382,9 @@ export async function runCrawlerCheck(rawUrl: string): Promise<CheckResult> {
         why:
           "AI 答案里的引用来自检索索引。屏蔽检索型爬虫，等于主动把自己从 AI 的可引用来源中摘除 —— " +
           "这与屏蔽训练型爬虫是完全不同的后果，但常被混为一谈。",
-        evidence: blockedCritical.map((v) => `${v.token}：${v.reason}`).join("\n"),
+        evidence: blockedCritical
+          .map((v) => `${v.token}［证据：${v.evidenceLabel}］：${v.reason}`)
+          .join("\n"),
         fix: `为这些 token 显式放行。注意区分：只拒绝训练、保留检索是合法且常见的做法。`,
         fixCode: `# 放行检索型爬虫（决定 AI 能否引用你）
 ${blockedCritical.map((v) => `User-agent: ${v.token}\nAllow: /`).join("\n\n")}
@@ -386,14 +401,40 @@ Disallow: /`,
         title: "检索型 AI 爬虫未被屏蔽",
         status: "pass",
         severity: 3,
-        what: `${CRITICAL_BOTS.length} 个影响 AI 答案可见性的爬虫（${CRITICAL_BOTS.map((b) => b.token).join("、")}）在当前路径上均被允许抓取。`,
+        what: `${CRITICAL_BOTS.length} 个影响 AI 答案可见性的爬虫（证据等级为官方文档或实测观测的条目）在当前路径上均被允许抓取。`,
         why: "这是品牌有机会出现在 AI 答案与引用来源里的必要条件。",
         evidence: verdicts
-          .filter((v) => v.impactsAiAnswers)
-          .map((v) => `${v.token}：${v.allowed ? "允许" : "阻止"}`)
+          .filter((v) => v.impactsAiAnswers && v.evidence !== "reported")
+          .map((v) => `${v.token}［${v.evidenceLabel}］：${v.allowed ? "允许" : "阻止"}`)
           .join("\n"),
       });
     }
+
+    /* ---------- 4a-2. 国内 AI 的检索机制（回答"为什么找不到豆包爬虫"） ---------- */
+    const cnVerdicts = verdicts.filter((v) => v.region === "cn" && v.evidence !== "reported");
+    meta.chinaMechanism = CHINA_AI_MECHANISM;
+    findings.push({
+      id: "cn-ai-mechanism",
+      title: "国内 AI 平台：多数没有自己的检索爬虫，用的是搜索索引",
+      status: "info",
+      severity: 3,
+      what:
+        "国产 AI 助手大多不自己抓网页，而是复用母公司的搜索索引。" +
+        "因此「豆包」「Kimi」这类以 AI 产品命名的爬虫在服务器日志里搜不到，是正常的 —— " +
+        "真正决定你在这些平台问答里能否被引用的，是它们背后那个搜索索引的爬虫。",
+      why:
+        "很多团队花钱屏蔽了「豆包爬虫」「千问爬虫」，却不知道自己真正该维护的是 " +
+        "Baiduspider / Sogou / 神马 这些搜索索引的抓取条件。方向错了，投入就浪费了。",
+      evidence:
+        CHINA_AI_MECHANISM.map((m) => `${m.product} → 杠杆点：${m.lever}（${m.detail}）`).join("\n") +
+        "\n\n本次实际检测到的国内相关爬虫：\n" +
+        cnVerdicts
+          .map((v) => `${v.token}［${v.operator}｜${v.evidenceLabel}］：${v.allowed ? "允许" : "阻止"}`)
+          .join("\n"),
+      fix:
+        "如果目标是国内 AI 可见性，优先确认 Baiduspider（含 render）、Sogou 系、神马（YisouSpider）能正常抓取，" +
+        "而不是去屏蔽一个可能并不存在的 AI 产品爬虫。",
+    });
 
     // 4b. 训练型爬虫 —— 信息项，附带最常见的误解澄清
     const blockedTraining = verdicts.filter((v) => v.purpose === PURPOSE_LABEL.training && !v.allowed);
@@ -421,6 +462,45 @@ Disallow: /`,
           ? "如果目的是减少内容被用于训练，这样设置是合理的；只需确认没有连带屏蔽检索型爬虫。"
           : "如果出于内容授权考虑不想贡献训练语料，可以只屏蔽训练型爬虫并保留检索型爬虫。",
     });
+
+    /* ---------- 4c. 假 token 检测：你屏蔽了一个不存在的东西吗 ---------- */
+    const declaredAgents = new Set(robots.groups.flatMap((g) => g.agents));
+    const phantomFound = PHANTOM_BOTS.filter((p) =>
+      p.token
+        .split("/")
+        .map((t) => t.trim().toLowerCase())
+        .some((t) => t && declaredAgents.has(t)),
+    );
+    meta.roster = { updatedAt: ROSTER_UPDATED_AT, total: AI_BOTS.length, phantomChecked: PHANTOM_BOTS.length };
+
+    if (phantomFound.length > 0) {
+      findings.push({
+        id: "phantom-bots",
+        title: `robots.txt 中声明了 ${phantomFound.length} 个"查无实证"的爬虫 token`,
+        status: "warn",
+        severity: 2,
+        what: `这些 token 出现在你的 robots.txt 里，但未找到官方文档或第三方实测证据表明它们真实存在：${phantomFound
+          .map((p) => p.token)
+          .join("、")}。`,
+        why:
+          "屏蔽一个不存在的爬虫不会有任何效果，但会让人误以为「已经处理过 AI 抓取问题了」——" +
+          "这种虚假的安心感，往往比不做更糟：真正决定你能否被 AI 引用的爬虫可能仍然处于封闭状态。",
+        evidence: phantomFound.map((p) => `${p.token}（本该是 ${p.wouldBe}）：${p.reality}`).join("\n\n"),
+        fix:
+          "删掉这些无效规则，把精力放在真正影响 AI 引用的检索型爬虫上（见上一条结论），" +
+          "尤其是国内平台背后的搜索索引爬虫。",
+      });
+    } else {
+      findings.push({
+        id: "phantom-bots",
+        title: "未发现「查无实证」的爬虫 token",
+        status: "pass",
+        severity: 3,
+        what: `已核对 ${PHANTOM_BOTS.length} 个常见的虚构 token（${PHANTOM_BOTS.map((p) => p.token).join("、")}），robots.txt 中均未出现。`,
+        why: "说明规则集没有为不存在的东西浪费精力，也没有产生「已经处理过 AI 抓取」的虚假安心感。",
+        evidence: `已核对：${PHANTOM_BOTS.map((p) => p.token).join("、")}\nrobots.txt 中声明的 user-agent：${[...declaredAgents].join("、") || "（无）"}`,
+      });
+    }
 
     /* ---------- 5. sitemap ---------- */
     const sitemapCandidates = declaredSitemaps(robots).length
