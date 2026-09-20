@@ -1,0 +1,14 @@
+node_modules/
+.next/
+data/
+*.db
+*.db-wal
+*.db-shm
+.env
+.env.local
+.DS_Store
+next-env.d.ts
+tsconfig.tsbuildinfo
+
+# 视觉验收产物（本地生成，不入库：单页全尺寸截图约 1MB）
+screenshots/
