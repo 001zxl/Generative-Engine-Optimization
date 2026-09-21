@@ -14,7 +14,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Separator } from "@/components/ui/separator";
-import { site } from "@/lib/site";
 import { cn } from "@/lib/utils";
 
 const NAV = [
@@ -24,7 +23,7 @@ const NAV = [
   { href: "/console", label: "运营台", icon: IconLayoutDashboard },
 ];
 
-export function SiteHeader() {
+export function SiteHeader({ siteName }: { siteName: string }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
 
@@ -35,7 +34,7 @@ export function SiteHeader() {
           <span className="grid size-6 place-items-center rounded-md bg-primary text-[11px] font-bold text-primary-foreground">
             G
           </span>
-          <span className="text-[15px]">{site.name}</span>
+          <span className="text-[15px]">{siteName}</span>
         </Link>
 
         <nav className="ml-auto hidden items-center gap-1 md:flex">
@@ -67,7 +66,7 @@ export function SiteHeader() {
           </SheetTrigger>
           <SheetContent side="right" className="w-72">
             <SheetHeader>
-              <SheetTitle className="text-left">{site.name}</SheetTitle>
+              <SheetTitle className="text-left">{siteName}</SheetTitle>
             </SheetHeader>
             <Separator />
             <nav className="flex flex-col gap-1 px-4">

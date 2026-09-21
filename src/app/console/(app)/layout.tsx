@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { ConsoleSidebar } from "@/components/console-nav";
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { Separator } from "@/components/ui/separator";
+import { site } from "@/lib/site";
 
 export const metadata: Metadata = {
   title: "GEO 运营台",
@@ -11,7 +12,7 @@ export const metadata: Metadata = {
 export default function ConsoleLayout({ children }: { children: React.ReactNode }) {
   return (
     <SidebarProvider>
-      <ConsoleSidebar />
+      <ConsoleSidebar siteName={site.name} />
       <SidebarInset>
         <header className="flex h-14 shrink-0 items-center gap-2 border-b px-4">
           <SidebarTrigger className="-ml-1" />

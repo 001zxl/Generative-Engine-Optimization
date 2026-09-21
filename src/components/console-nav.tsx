@@ -30,7 +30,6 @@ import {
   SidebarRail,
   SidebarSeparator,
 } from "@/components/ui/sidebar";
-import { site } from "@/lib/site";
 import { logout } from "@/app/console/login/actions";
 
 /**
@@ -69,7 +68,7 @@ const SECTIONS = [
   },
 ];
 
-export function ConsoleSidebar() {
+export function ConsoleSidebar({ siteName }: { siteName: string }) {
   const pathname = usePathname();
 
   return (
@@ -83,7 +82,7 @@ export function ConsoleSidebar() {
                   G
                 </div>
                 <div className="grid flex-1 text-left leading-tight">
-                  <span className="truncate text-sm font-semibold">{site.name}</span>
+                  <span className="truncate text-sm font-semibold">{siteName}</span>
                   <span className="truncate text-xs text-muted-foreground">GEO 运营台</span>
                 </div>
               </Link>

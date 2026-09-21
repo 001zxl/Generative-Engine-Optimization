@@ -29,7 +29,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="zh-CN">
       <body className="min-h-screen antialiased">
         <TooltipProvider delayDuration={200}>
-          <SiteHeader />
+          <SiteHeader siteName={site.name} />
           <main className="min-h-[calc(100vh-3.5rem)]">{children}</main>
           <SiteFooter />
           <Toaster position="top-center" richColors />

@@ -497,6 +497,12 @@ geo-growth-engine/
       不配的后果是线索只入库、不提醒任何人
 - [ ] **删除 `.env` 中的本地开关**：`ALLOW_INSECURE_DEFAULTS` 与 `EXTRA_TRUSTED_CIDRS`
 
+**构建与配置的顺序（踩过的坑）**
+
+- [ ] **改完 `.env` 必须重新构建**：`pnpm migrate && pnpm build && pnpm start`。
+      `src/lib/site.ts` 里的取值会被打进产物（Next 对 `process.env` 做静态内联），
+      只重启不重建的话页面仍显示旧值 —— 实测过：改了 `CONTACT_EMAIL` 重启后仍是旧邮箱。
+
 **数据**
 
 - [ ] 确认 `DATABASE_PATH` 指向**持久磁盘**（容器的话挂 volume，不要用无状态镜像层）
@@ -508,6 +514,9 @@ geo-growth-engine/
 **安全**
 
 - [ ] `pnpm audit` 无已知漏洞（当前为 0）
+- [ ] **不要在任何客户端组件（`"use client"`）里读取 `src/lib/site.ts`** ——
+      该文件已加 `import "server-only"`，违规引用会**构建失败**（已实测确认会拦）。
+      需要往客户端组件传值，由服务端组件以 props 传入（见 `SiteHeader` / `ConsoleSidebar`）
 - [ ] 运营台登录可用、未登录被拦截（`pnpm e2e:auth`）
 - [ ] 确认部署在 HTTPS 后面（`sessionCookieOptions()` 在生产环境会自动加 `Secure`）
 
