@@ -16,7 +16,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { leadStatusUpdate, touchpointAdd } from "../actions";
+import { leadAssign, leadStatusUpdate, touchpointAdd } from "../actions";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -123,8 +123,9 @@ export default function AttributionPage() {
                   <TableHead className="w-32">时间</TableHead>
                   <TableHead>联系方式</TableHead>
                   <TableHead className="w-40">来源</TableHead>
+                  <TableHead className="w-28">责任人</TableHead>
                   <TableHead className="w-32">状态</TableHead>
-                  <TableHead className="w-72">流转</TableHead>
+                  <TableHead className="w-80">流转 / 指派</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -148,6 +149,16 @@ export default function AttributionPage() {
                           <div className="text-xs">自述：{l.self_reported_source}</div>
                         )}
                       </TableCell>
+                      <TableCell className="text-xs">
+                        {l.owner ?? <span className="text-warn">未指派</span>}
+                        {l.notified_at ? (
+                          <div className="text-xs text-muted-foreground">已通知</div>
+                        ) : (
+                          <div className="text-xs text-warn" title={l.notify_error ?? undefined}>
+                            未通知
+                          </div>
+                        )}
+                      </TableCell>
                       <TableCell>
                         <StatusPill status={l.status} />
                         {history.length > 0 && (
@@ -169,7 +180,12 @@ export default function AttributionPage() {
                               </option>
                             ))}
                           </select>
-                          <Input name="note" placeholder="备注" className="h-8 w-36" />
+                          <Input name="note" placeholder="备注" className="h-8 w-32" />
+                        </InlineForm>
+                        <InlineForm action={leadAssign} submitLabel="指派" className="mt-1.5">
+                          <input type="hidden" name="leadId" value={l.id} />
+                          <Input name="owner" placeholder="责任人" className="h-8 w-28" defaultValue={l.owner ?? ""} />
+                          <Input name="nextFollowUpAt" type="date" className="h-8 w-36" defaultValue={(l.next_follow_up_at ?? "").slice(0, 10)} />
                         </InlineForm>
                       </TableCell>
                     </TableRow>

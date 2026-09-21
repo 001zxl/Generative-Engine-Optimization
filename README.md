@@ -488,9 +488,32 @@ geo-growth-engine/
 
 ### 12.4 上线前检查清单
 
-- [ ] 替换 `APP_BASE_URL` 为真实域名（建议 https）
-- [ ] 替换 `CONTACT_EMAIL` 为真实可收信邮箱
-- [ ] 确认 `.env` 中**没有** `ALLOW_INSECURE_DEFAULTS`
-- [ ] 删除 `.env` 中的 `EXTRA_TRUSTED_CIDRS`（除非你的网络确实走透明代理）
-- [x] 为 `/console` 补上登录鉴权（见 §12.4）
-- [ ] 配置数据备份（`data/geo.db` 是唯一的数据文件）
+**配置**
+
+- [ ] `APP_BASE_URL` 替换为真实 HTTPS 域名（配置守卫会拒绝 localhost）
+- [ ] `CONTACT_EMAIL` 替换为真实可收信邮箱（占位邮箱会被拒绝）
+- [ ] `CONSOLE_PASSWORD` 换成强口令；`AUTH_SECRET` 用 `openssl rand -base64 32`
+- [ ] **配置 `LEAD_NOTIFY_WEBHOOK`**（钉钉/企微/飞书机器人）——
+      不配的后果是线索只入库、不提醒任何人
+- [ ] **删除 `.env` 中的本地开关**：`ALLOW_INSECURE_DEFAULTS` 与 `EXTRA_TRUSTED_CIDRS`
+
+**数据**
+
+- [ ] 确认 `DATABASE_PATH` 指向**持久磁盘**（容器的话挂 volume，不要用无状态镜像层）
+- [ ] 部署流程按 `pnpm install && pnpm migrate && pnpm build && pnpm start` 执行
+      （迁移不显式跑也能work，但时机不确定）
+- [ ] 配置定时备份：`pnpm backup`（用 `VACUUM INTO` 生成一致快照，运行中执行也安全）
+- [ ] **把 `backups/` 同步到异地** —— 同盘备份防不了磁盘损坏
+
+**安全**
+
+- [ ] `pnpm audit` 无已知漏洞（当前为 0）
+- [ ] 运营台登录可用、未登录被拦截（`pnpm e2e:auth`）
+- [ ] 确认部署在 HTTPS 后面（`sessionCookieOptions()` 在生产环境会自动加 `Secure`）
+
+**已知限制（诚实列出）**
+
+- 备份用 `VACUUM INTO`，恢复需停服后替换 `data/geo.db`
+- 限流与登录节流都是**进程内存**实现，多实例下各算各的 → 横向扩展前必须换 Redis
+- 数据库是 SQLite 单文件，**只适用单机 + 持久磁盘**；多副本需 PostgreSQL + 真正的迁移系统
+- 列迁移只支持加列（`src/lib/db/migrate.ts`），不支持改类型/删列/数据搬迁

@@ -1,5 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { createLead, recordEvent } from "@/lib/db/repo";
+import { createLead, markLeadNotified, recordEvent } from "@/lib/db/repo";
+import { notifyLead } from "@/lib/notify";
+import { site } from "@/lib/site";
 import { checkRateLimit, clientIp } from "@/lib/rate-limit";
 import { hashIp } from "@/lib/id";
 
@@ -42,6 +44,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true });
   }
 
+  const createdAt = new Date().toISOString();
   const id = createLead({
     email,
     name,
@@ -59,5 +62,31 @@ export async function POST(req: NextRequest) {
   });
 
   recordEvent({ name: "lead_submit", path: source ?? undefined, toolRunId, referrer: req.headers.get("referer") });
+
+  // 先入库、再通知：通知失败绝不能影响线索保存。
+  // 失败原因写回 leads.notify_error，运营台可见 —— 不静默丢掉。
+  try {
+    const r = await notifyLead({
+      leadId: id,
+      email,
+      company,
+      website,
+      message,
+      source,
+      selfReportedSource,
+      createdAt,
+      consoleUrl: `${site.baseUrl}/console/leads`,
+    });
+    if (r.ok) {
+      markLeadNotified(id, true);
+    } else if (r.skipped === "not_configured") {
+      markLeadNotified(id, false, "未配置 LEAD_NOTIFY_WEBHOOK，未发出任何提醒");
+    } else {
+      markLeadNotified(id, false, r.error ?? "未知原因");
+    }
+  } catch (e) {
+    markLeadNotified(id, false, e instanceof Error ? e.message : String(e));
+  }
+
   return NextResponse.json({ ok: true, leadId: id });
 }

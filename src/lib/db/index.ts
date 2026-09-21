@@ -2,6 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import fs from "node:fs";
 import path from "node:path";
 import { SCHEMA_SQL, DEFAULT_WORKSPACE } from "./schema.ts";
+import { runColumnMigrations } from "./migrate.ts";
 import { newId } from "../id.ts";
 
 declare global {
@@ -19,6 +20,15 @@ function open(): DatabaseSync {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const db = new DatabaseSync(file);
   db.exec(SCHEMA_SQL);
+
+  // 幂等补列：CREATE TABLE IF NOT EXISTS 不会给已存在的表加新列
+  const mig = runColumnMigrations(db);
+  if (mig.applied.length > 0) {
+    console.log(`[db] 已应用列迁移: ${mig.applied.join(", ")}`);
+  }
+  for (const f of mig.failed) {
+    console.error(`[db] ✖ 列迁移失败 ${f.target}: ${f.error}`);
+  }
 
   // 幂等初始化默认工作区
   const now = new Date().toISOString();

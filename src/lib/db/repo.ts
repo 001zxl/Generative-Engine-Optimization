@@ -24,6 +24,10 @@ export interface LeadRecord {
   source: string | null;
   status: string;
   created_at: string;
+  owner?: string | null;
+  next_follow_up_at?: string | null;
+  notified_at?: string | null;
+  notify_error?: string | null;
 }
 
 export function createToolRun(params: {
@@ -128,14 +132,17 @@ export function createLead(params: {
   source?: string | null;
   toolRunId?: string | null;
   firstTouch?: Record<string, unknown>;
+  owner?: string | null;
+  nextFollowUpAt?: string | null;
 }): string {
   const db = getDb();
   const id = newId("lead");
   const now = new Date().toISOString();
   db.prepare(
     `INSERT INTO leads
-      (id, workspace_id, email, name, company, website, message, self_reported_source, source, status, first_touch_json, tool_run_id, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'new', ?, ?, ?, ?)`,
+      (id, workspace_id, email, name, company, website, message, self_reported_source, source, status,
+       first_touch_json, tool_run_id, owner, next_follow_up_at, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'new', ?, ?, ?, ?, ?, ?)`,
   ).run(
     id,
     workspaceId(),
@@ -148,11 +155,50 @@ export function createLead(params: {
     params.source ?? null,
     JSON.stringify(params.firstTouch ?? {}),
     params.toolRunId ?? null,
+    params.owner ?? null,
+    params.nextFollowUpAt ?? null,
     now,
     now,
   );
   audit("create", "lead", id, { source: params.source });
   return id;
+}
+
+/** 记录通知结果。失败原因要落库 —— 只在日志里报错等于没人知道线索没被提醒。 */
+export function markLeadNotified(leadId: string, ok: boolean, error?: string): void {
+  const db = getDb();
+  if (ok) {
+    db.prepare("UPDATE leads SET notified_at = ?, notify_error = NULL, updated_at = ? WHERE id = ? AND workspace_id = ?").run(
+      new Date().toISOString(),
+      new Date().toISOString(),
+      leadId,
+      workspaceId(),
+    );
+  } else {
+    db.prepare("UPDATE leads SET notify_error = ?, updated_at = ? WHERE id = ? AND workspace_id = ?").run(
+      error ?? "未知原因",
+      new Date().toISOString(),
+      leadId,
+      workspaceId(),
+    );
+  }
+}
+
+/** 尚未成功通知过的线索（用于运营台显式列出，避免漏掉） */
+export function listUnnotifiedLeads(limit = 50): LeadRecord[] {
+  return getDb()
+    .prepare(
+      `SELECT * FROM leads WHERE workspace_id = ? AND notified_at IS NULL
+       ORDER BY created_at DESC LIMIT ?`,
+    )
+    .all(workspaceId(), limit) as unknown as LeadRecord[];
+}
+
+export function assignLeadOwner(leadId: string, owner: string, nextFollowUpAt?: string): void {
+  getDb()
+    .prepare("UPDATE leads SET owner = ?, next_follow_up_at = ?, updated_at = ? WHERE id = ? AND workspace_id = ?")
+    .run(owner, nextFollowUpAt ?? null, new Date().toISOString(), leadId, workspaceId());
+  audit("assign", "lead", leadId, { owner, nextFollowUpAt: nextFollowUpAt ?? null });
 }
 
 export function listLeads(limit = 100): LeadRecord[] {

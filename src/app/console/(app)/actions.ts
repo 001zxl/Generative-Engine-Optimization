@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import * as R from "@/lib/db/repo-domains";
+import { assignLeadOwner } from "@/lib/db/repo";
 import { evaluateScope } from "@/lib/evaluate-run";
 
 /* ------------------------------------------------------------------ *
@@ -251,6 +252,15 @@ export async function leadStatusUpdate(fd: FormData) {
   const to = s(fd, "status");
   if (!leadId || !to) return;
   R.updateLeadStatus(leadId, to, opt(fd, "note"));
+  refresh(["/console/attribution", "/console/leads"]);
+}
+
+/** 指派线索跟进责任人 —— 没有责任人的线索等于没人跟进 */
+export async function leadAssign(fd: FormData) {
+  const leadId = s(fd, "leadId");
+  const owner = s(fd, "owner");
+  if (!leadId || !owner) return;
+  assignLeadOwner(leadId, owner, opt(fd, "nextFollowUpAt"));
   refresh(["/console/attribution", "/console/leads"]);
 }
 

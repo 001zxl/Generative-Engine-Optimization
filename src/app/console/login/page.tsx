@@ -71,16 +71,6 @@ export default async function LoginPage({
 
           <form action={login} className="flex flex-col gap-4">
             <input type="hidden" name="next" value={sp.next ?? "/console"} />
-            {/* 蜜罐：真人看不到 */}
-            <input
-              type="text"
-              name="hint"
-              tabIndex={-1}
-              autoComplete="off"
-              aria-hidden="true"
-              className="absolute left-[-9999px] size-px"
-              defaultValue="web"
-            />
             <Field label="运营台口令" htmlFor="pw">
               <Input id="pw" name="password" type="password" required autoFocus autoComplete="current-password" />
             </Field>
@@ -93,7 +83,7 @@ export default async function LoginPage({
 
       <p className="mt-4 text-xs text-muted-foreground">
         会话为 HMAC 签名的 HttpOnly Cookie，有效期 12 小时，服务端不存 session。
-        连续失败 8 次将锁定 10 分钟。
+        节流按客户端 IP 计（8 次 / 10 分钟），另有全局上限 30 次 / 10 分钟兜住分布式尝试。
       </p>
     </div>
   );

@@ -180,6 +180,11 @@ CREATE TABLE IF NOT EXISTS leads (
   status               TEXT NOT NULL DEFAULT 'new', -- new|contacted|qualified|won|lost
   first_touch_json     TEXT NOT NULL DEFAULT '{}',
   tool_run_id          TEXT,
+  -- 跟进责任与通知状态（旧库由 src/lib/db/migrate.ts 幂等补列）
+  owner                TEXT,           -- 跟进责任人；NULL 表示尚未指派
+  next_follow_up_at    TEXT,           -- 下次跟进时间，用于逾期提醒
+  notified_at          TEXT,           -- 最近一次通知成功的时间
+  notify_error         TEXT,           -- 最近一次通知失败的原因（失败必须可见）
   created_at           TEXT NOT NULL,
   updated_at           TEXT NOT NULL
 );

@@ -1,6 +1,6 @@
 "use server";
 
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import {
   COOKIE_NAME,
@@ -10,32 +10,20 @@ import {
   sessionCookieOptions,
   verifyPassword,
 } from "@/lib/auth";
+import { defaultThrottle, evaluateAttempt, noteFailure, noteSuccess } from "@/lib/auth-throttle";
+import { hashIp } from "@/lib/id";
 
 /**
- * 简单的失败计数，用于减缓口令爆破。
- * 单实例部署下内存计数够用；多实例需换成 Redis（与前期限流的限制一致）。
+ * 失败计数的键必须来自**服务端可观测**的信息，不能用客户端提交的字段。
+ *
+ * 旧实现用表单里的隐藏字段 `hint` 作键 —— 攻击者改个值就有全新计数器，
+ * 节流完全无效。现在按客户端 IP 分桶，另有全局兜底（见 auth-throttle.ts）。
  */
-const attempts = new Map<string, { n: number; until: number }>();
-const MAX_ATTEMPTS = 8;
-const LOCK_MS = 10 * 60 * 1000;
-
-function keyOf(hint: string): string {
-  return hint || "unknown";
-}
-
-function isLocked(k: string): number {
-  const a = attempts.get(k);
-  if (!a) return 0;
-  if (Date.now() > a.until) {
-    attempts.delete(k);
-    return 0;
-  }
-  return a.n >= MAX_ATTEMPTS ? Math.ceil((a.until - Date.now()) / 1000) : 0;
-}
-
-function noteFailure(k: string): void {
-  const a = attempts.get(k) ?? { n: 0, until: 0 };
-  attempts.set(k, { n: a.n + 1, until: Date.now() + LOCK_MS });
+async function clientKey(): Promise<string> {
+  const h = await headers();
+  const xff = h.get("x-forwarded-for");
+  const ip = xff ? xff.split(",")[0].trim() : (h.get("x-real-ip") ?? "0.0.0.0");
+  return hashIp(ip);
 }
 
 export async function login(fd: FormData): Promise<void> {
@@ -44,16 +32,20 @@ export async function login(fd: FormData): Promise<void> {
 
   if (!isAuthConfigured()) redirect("/console/login?unconfigured=1");
 
-  const k = keyOf(String(fd.get("hint") ?? ""));
-  const locked = isLocked(k);
-  if (locked > 0) redirect(`/console/login?error=locked&next=${encodeURIComponent(next)}`);
+  const key = await clientKey();
+  const state = defaultThrottle();
+
+  const verdict = evaluateAttempt(state, key, Date.now());
+  if (!verdict.allowed) {
+    redirect(`/console/login?error=locked&next=${encodeURIComponent(next)}`);
+  }
 
   if (!(await verifyPassword(password))) {
-    noteFailure(k);
+    noteFailure(state, key, Date.now());
     redirect(`/console/login?error=bad&next=${encodeURIComponent(next)}`);
   }
 
-  attempts.delete(k);
+  noteSuccess(state, key);
   const token = await createSessionToken();
   if (!token) redirect("/console/login?unconfigured=1");
 

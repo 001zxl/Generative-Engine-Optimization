@@ -15,6 +15,7 @@ export interface ConfigEnv {
   SITE_NAME?: string;
   DATABASE_PATH?: string;
   ALLOW_INSECURE_DEFAULTS?: string;
+  LEAD_NOTIFY_WEBHOOK?: string;
   CI?: string;
 }
 
@@ -107,7 +108,17 @@ export function validateConfig(env: ConfigEnv): ConfigVerdict {
     errors.push(`CONTACT_EMAIL 不是合法邮箱：${contactEmail}`);
   }
 
-  /* —— 3. SITE_NAME —— */
+  /* —— 3. 线索提醒通道：不阻断，但必须显式警告 —— */
+  if (bypassed) {
+    // 本地自测允许没有通知通道
+  } else if (!(env.LEAD_NOTIFY_WEBHOOK ?? "").trim()) {
+    warnings.push(
+      "LEAD_NOTIFY_WEBHOOK 未配置：新线索会入库但不会提醒任何人。" +
+        "正式获客前请配置（钉钉/企微/飞书 机器人 Webhook）。",
+    );
+  }
+
+  /* —— 4. SITE_NAME —— */
   if (!siteName) warnings.push("SITE_NAME 未设置，将使用默认名称。");
 
   /* —— 4. 运营台鉴权：缺失等于没有门，必须阻止启动 —— */

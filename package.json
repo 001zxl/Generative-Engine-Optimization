@@ -16,7 +16,9 @@
     "preflight": "node scripts/preflight.ts",
     "seed": "node scripts/seed.ts",
     "e2e:eval": "node scripts/e2e-eval-click.mjs",
-    "e2e:auth": "node scripts/e2e-auth.mjs"
+    "e2e:auth": "node scripts/e2e-auth.mjs",
+    "backup": "node scripts/backup.ts",
+    "migrate": "node scripts/migrate.ts"
   },
   "dependencies": {
     "@tabler/icons-react": "^3.47.0",
