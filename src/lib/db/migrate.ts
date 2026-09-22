@@ -15,6 +15,8 @@
  *   - 没有版本号，靠 PRAGMA 探测现状决定是否执行
  */
 import type { DatabaseSync } from "node:sqlite";
+import { LOCAL_COLUMN_MIGRATIONS } from "./schema-local.ts";
+import { PUBLISH_COLUMN_MIGRATIONS } from "./schema-publishing.ts";
 
 export interface ColumnMigration {
   table: string;
@@ -49,6 +51,8 @@ export const COLUMN_MIGRATIONS: ColumnMigration[] = [
     ddl: "next_follow_up_at TEXT",
     note: "下次跟进时间，用于逾期提醒",
   },
+  ...LOCAL_COLUMN_MIGRATIONS.map((m) => ({ ...m })),
+  ...PUBLISH_COLUMN_MIGRATIONS.map((m) => ({ ...m })),
 ];
 
 export interface MigrationOutcome {

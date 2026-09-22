@@ -12,6 +12,19 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const metadata = { title: "发布执行与复测", robots: { index: false, follow: false } };
 
+interface PublishGateView { id: string; label: string; ok: boolean; detail: string }
+
+/** gates_json 结构由本仓库写入；解析失败按「无门槛结果」处理，不伪造通过。 */
+function parsedGates(raw: string | null | undefined): PublishGateView[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw) as PublishGateView[];
+    return Array.isArray(parsed) ? parsed.filter((g) => g && typeof g.label === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
 const statuses: Record<string, string> = { pending: "待执行", sending: "执行中 / 待核对", succeeded: "已发布", failed: "失败，可修正后重试", uncertain: "远端状态未知，需核对" };
 const selectClass = "h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm";
 
@@ -52,7 +65,16 @@ export default async function PublishingPage({ searchParams }: { searchParams: P
               {["pending", "failed"].includes(job.status) && <form action={executePublication}><input type="hidden" name="id" value={job.id} /><Button type="submit" size="sm" disabled={!channel.configured}>{job.status === "failed" ? "修正后重试" : `执行发布到${channel.name}`}</Button></form>}
               {job.status === "succeeded" && <form action={recheckPublication}><input type="hidden" name="id" value={job.id} /><Button size="sm" variant="outline" type="submit">复测已发布 URL</Button></form>}
             </div>
-            {check && <p className={`mt-3 text-xs ${check.ok ? "text-ok" : "text-fail"}`}>最近复测：{check.note}（{check.checked_at.slice(0, 16).replace("T", " ")} UTC）</p>}
+            {check && <div className="mt-3">
+              <p className={`text-xs ${check.ok ? "text-ok" : "text-fail"}`}>最近复测：{check.note}（{check.checked_at.slice(0, 16).replace("T", " ")} UTC）</p>
+              {parsedGates(check.gates_json).length > 0 && <ul className="mt-2 space-y-1">
+                {parsedGates(check.gates_json).map((g) => <li key={g.id} className="flex items-start gap-2 text-xs">
+                  <span className={g.ok ? "text-ok" : "text-fail"}>{g.ok ? "通过" : "未通过"}</span>
+                  <span className="font-medium">{g.label}</span>
+                  <span className="text-muted-foreground">{g.detail}</span>
+                </li>)}
+              </ul>}
+            </div>}
             {unknown && <div className="mt-4 space-y-4 border-t pt-4">
               <p className="text-sm text-muted-foreground">请到目标平台查找标题“{snapshot.title}”。若已发布，核对正文后补回链接；若确认没有发布，可恢复待执行状态。请求仍执行时请等待至少一分钟。</p>
               {job.channel !== "own_site" && <form action={reconcilePublication} className="space-y-2"><input type="hidden" name="id" value={job.id} /><Input name="url" type="url" required placeholder="https://目标平台/已发布文章" aria-label="人工核对的发布 URL" /><label className="flex items-center gap-2 text-xs"><input name="confirmed" type="checkbox" required />我已打开目标平台，核对这篇内容确实发布成功</label><Button type="submit" size="sm" variant="outline">补回成功 URL</Button></form>}

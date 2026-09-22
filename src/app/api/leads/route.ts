@@ -4,11 +4,10 @@ import { notifyLead } from "@/lib/notify";
 import { site } from "@/lib/site";
 import { checkRateLimit, clientIp } from "@/lib/rate-limit";
 import { hashIp } from "@/lib/id";
+import { checkLeadEmail } from "@/lib/lead-intake";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
 function str(v: unknown, max = 500): string | null {
   if (typeof v !== "string") return null;
@@ -36,8 +35,10 @@ export async function POST(req: NextRequest) {
   const source = str(body.source, 200);
   const toolRunId = str(body.toolRunId, 100);
 
-  if (!email || !EMAIL_RE.test(email)) {
-    return NextResponse.json({ error: "请填写有效的邮箱地址。" }, { status: 400 });
+  const emailCheck = checkLeadEmail(email);
+  if (!emailCheck.ok) {
+    // 保留域名不是「格式错误」，而是测试数据 —— 如实说明原因，不假装成功
+    return NextResponse.json({ error: emailCheck.message }, { status: 400 });
   }
   // 极简蜜罐：正常用户不会填写这个字段
   if (typeof body.honeypot === "string" && body.honeypot.trim() !== "") {

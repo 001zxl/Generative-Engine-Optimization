@@ -6,7 +6,25 @@ import urllib.request
 import urllib.error
 import sys
 
-BASE = "http://localhost:3100"
+BASE = sys.argv[1] if len(sys.argv) > 1 else "http://localhost:3100"
+
+# 这个套件会 POST 真实线索。它曾经被直接跑在 3100 的试点服务上，
+# 往 data/geo.db 写了 19 条 buyer@example-eu.com 的假线索 ——
+# 报表上看起来像「已经有 19 个客户」。写数据之前必须先确认目标不是试点库。
+def assert_not_pilot(base):
+    try:
+        with urllib.request.urlopen(base + "/api/health", timeout=5) as r:
+            payload = json.loads(r.read().decode("utf-8"))
+    except Exception as exc:
+        print(f"无法确认 {base} 的数据库归属：{exc}")
+        sys.exit(1)
+    if payload.get("pilot"):
+        print(f"拒绝在试点库上运行端到端测试：{base} 指向 data/geo.db。\n"
+              f"请另起一个夹具服务（DATABASE_PATH=/tmp/fixture.db），再把地址传给本脚本。")
+        sys.exit(1)
+
+
+assert_not_pilot(BASE)
 passed, failed = [], []
 
 

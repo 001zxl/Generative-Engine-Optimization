@@ -159,6 +159,10 @@ export async function samplingRunCreate(fd: FormData) {
     engines,
     region: opt(fd, "region"),
     repetition: Number(s(fd, "repetition") || "1"),
+    storeId: opt(fd, "storeId") ?? null,
+    locationMode: s(fd, "locationMode") || "unspecified",
+    anchorId: opt(fd, "anchorId") ?? null,
+    daypart: opt(fd, "daypart") ?? null,
   });
   refresh(["/console/sampling"]);
 }

@@ -560,7 +560,19 @@ export function listSamplingRuns(): SamplingRunRow[] {
   );
 }
 
-export function createSamplingRun(input: { label: string; querySetId: string; samplingMode: string; engines: string[]; region?: string; repetition?: number }): {
+export function createSamplingRun(input: {
+  label: string;
+  querySetId: string;
+  samplingMode: string;
+  engines: string[];
+  region?: string;
+  repetition?: number;
+  /** 本地门店维度（可选；品牌级采样不传） */
+  storeId?: string | null;
+  locationMode?: string;
+  anchorId?: string | null;
+  daypart?: string | null;
+}): {
   runId: string;
   tasks: number;
 } {
@@ -573,12 +585,20 @@ export function createSamplingRun(input: { label: string; querySetId: string; sa
   if (!Number.isInteger(input.repetition ?? 1) || (input.repetition ?? 1) < 1 || (input.repetition ?? 1) > 10) throw new Error("重复次数必须是 1–10 的整数");
   const runId = newId("run_s");
   run(
-    "INSERT INTO sampling_runs (id, workspace_id, query_set_id, label, sampling_mode, status, created_at) VALUES (?, ?, ?, ?, ?, 'open', ?)",
+    `INSERT INTO sampling_runs
+      (id, workspace_id, query_set_id, label, sampling_mode, status, store_id, location_mode, anchor_id, daypart, created_at)
+     VALUES (?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?)`,
     runId,
     workspaceId(),
     input.querySetId,
     input.label,
     input.samplingMode,
+    input.storeId ?? null,
+    // 未显式指定一律记为 unspecified —— 不能默认成 device_location，
+    // 那会把"没标注"当成"用了真实定位"，是最危险的一种默认值
+    input.locationMode ?? "unspecified",
+    input.anchorId ?? null,
+    input.daypart ?? null,
     now(),
   );
 
@@ -629,6 +649,9 @@ export function saveSample(input: {
   modelVersion?: string;
   region?: string;
   collectedAt?: string;
+  /** 可复核的原始凭证：平台分享链接与截图路径 */
+  shareUrl?: string;
+  screenshotPath?: string;
 }): { sampleId: string } {
   const task = one<{ id: string; run_id: string; question_id: string; engine: string; region: string | null; repetition: number }>(
     "SELECT id, run_id, question_id, engine, region, repetition FROM sampling_tasks WHERE id = ? AND workspace_id = ?",
@@ -643,13 +666,17 @@ export function saveSample(input: {
   );
   if (existing) return { sampleId: existing.id };
 
-  const runRow = one<{ sampling_mode: string }>("SELECT sampling_mode FROM sampling_runs WHERE id = ?", task.run_id);
+  const runRow = one<{ sampling_mode: string; location_mode: string | null; anchor_id: string | null }>(
+    "SELECT sampling_mode, location_mode, anchor_id FROM sampling_runs WHERE id = ?",
+    task.run_id,
+  );
   const sampleId = newId("smp");
   const t = now();
   run(
     `INSERT INTO response_samples
-      (id, workspace_id, run_id, question_id, engine, sampling_mode, region, repetition, raw_answer, content_hash, collected_at, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
+      (id, workspace_id, run_id, question_id, engine, sampling_mode, region, repetition, raw_answer,
+       content_hash, collected_at, created_at, location_mode, anchor_id, share_url, screenshot_path)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?)`,
     sampleId,
     workspaceId(),
     task.run_id,
@@ -661,6 +688,11 @@ export function saveSample(input: {
     input.rawAnswer,
     input.collectedAt ?? t,
     t,
+    // 样本级定位方式随批次写入后不可变
+    runRow?.location_mode ?? "unspecified",
+    runRow?.anchor_id ?? null,
+    input.shareUrl ?? null,
+    input.screenshotPath ?? null,
   );
   if (input.modelVersion) {
     run("UPDATE response_samples SET content_hash = ? WHERE id = ?", `mv:${input.modelVersion}`, sampleId);

@@ -5,6 +5,7 @@ import { SCHEMA_SQL, DEFAULT_WORKSPACE } from "./schema.ts";
 import { SAMPLING_SQL } from "./schema-sampling.ts";
 import { PUBLISHING_SQL } from "./schema-publishing.ts";
 import { EXPERIMENTS_SQL } from "./schema-experiments.ts";
+import { LOCAL_SQL } from "./schema-local.ts";
 import { runColumnMigrations } from "./migrate.ts";
 import { newId } from "../id.ts";
 
@@ -13,7 +14,7 @@ declare global {
   var __geoDb: DatabaseSync | undefined;
 }
 
-function dbPath(): string {
+export function dbPath(): string {
   const p = process.env.DATABASE_PATH ?? "./data/geo.db";
   return path.isAbsolute(p) ? p : path.join(process.cwd(), p);
 }
@@ -26,6 +27,7 @@ function open(): DatabaseSync {
   db.exec(SAMPLING_SQL);
   db.exec(PUBLISHING_SQL);
   db.exec(EXPERIMENTS_SQL);
+  db.exec(LOCAL_SQL);
 
   // 幂等补列：CREATE TABLE IF NOT EXISTS 不会给已存在的表加新列
   const mig = runColumnMigrations(db);
@@ -47,6 +49,17 @@ function open(): DatabaseSync {
     ).run(newId("ws"), DEFAULT_WORKSPACE.slug, DEFAULT_WORKSPACE.name, now, now);
   }
   return db;
+}
+
+/**
+ * 是否指向试点库（data/geo.db）。
+ *
+ * 用途：端到端测试与夹具脚本必须先问这一句，避免把测试数据写进真实库。
+ * 试点库里堆过 19 条假线索，看起来像「已经有 19 个客户」——
+ * 这种错误一旦进了对外报告就收不回来。
+ */
+export function isPilotDb(): boolean {
+  return dbPath() === path.join(process.cwd(), "data", "geo.db");
 }
 
 /** 懒加载单例：避免在 next build 的静态分析阶段就创建数据文件 */

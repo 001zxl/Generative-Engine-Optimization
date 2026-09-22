@@ -1,6 +1,8 @@
 import { getDb, workspaceId, audit } from "./db/index.ts";
 import { newId, sha256 } from "./id.ts";
 import { fetchPage } from "./net/fetch-page.ts";
+import { parseRobots, isAllowed, declaredSitemaps } from "./net/robots.ts";
+import { CRITICAL_BOTS } from "./checks/bots.ts";
 
 export const PUBLISH_CHANNELS = [
   { id: "own_site", name: "本站知识页" },
@@ -279,15 +281,144 @@ export async function checkPublicationDispatch(id: string): Promise<{ ok: boolea
     ok = result.ok && !!result.body && (result.body.includes(escapeHtml(snapshot.title)) || normalized.includes(snapshot.title));
     note = ok ? "公开 URL 可抓取且找到文章标题；这不代表已收录或已被 AI 引用" : result.error || "页面不可访问或未找到文章标题，请检查登录墙、重定向和发布结果";
   }
-  getDb().prepare("INSERT INTO publication_checks (id, publication_id, status_code, ok, note, checked_at) VALUES (?, ?, ?, ?, ?, ?)")
-    .run(newId("pubcheck"), dispatch.publication_id, status, Number(ok), note, timestamp());
+  // 复核时同时跑三项门槛：页面可抓取 / robots 未拦 AI 抓取方 / 站点地图已收录。
+  // 网络异常不应让整个复测失败 —— 门槛检查失败本身就是有效结论。
+  let gates: PublishGate[] = [];
+  let gatesJson = "[]";
+  try {
+    const readiness = await checkPublishReadiness(dispatch.published_url);
+    gates = readiness.gates;
+    gatesJson = JSON.stringify(gates);
+    // 与旧口径保持一致：只在页面这一项不过时把整体判为未通过
+    if (!gates.find((g) => g.id === "page")?.ok) ok = false;
+  } catch {
+    gates = [
+      { id: "page", label: "页面可公开抓取", ok: false, detail: "门槛检查未能完成（网络或解析错误）" },
+    ];
+    gatesJson = JSON.stringify(gates);
+  }
+
+  getDb().prepare("INSERT INTO publication_checks (id, publication_id, status_code, ok, note, checked_at, gates_json) VALUES (?, ?, ?, ?, ?, ?, ?)")
+    .run(newId("pubcheck"), dispatch.publication_id, status, Number(ok), note, timestamp(), gatesJson);
   getDb().prepare("UPDATE publication_tasks SET status = ?, updated_at = ? WHERE id = ?")
     .run(ok ? "verified" : "published", timestamp(), dispatch.task_id);
   audit("publication_checked", "publication", dispatch.publication_id, { ok, note }, "operator");
   return { ok, note };
 }
 
-export function listPublicationChecks(): Array<{ id: string; publication_id: string; ok: number; status_code: number | null; note: string; checked_at: string }> {
-  return getDb().prepare(`SELECT c.* FROM publication_checks c JOIN publications p ON p.id = c.publication_id
-    WHERE p.workspace_id = ? ORDER BY c.checked_at DESC LIMIT 100`).all(workspaceId()) as unknown as ReturnType<typeof listPublicationChecks>;
+export function listPublicationChecks(): Array<{ id: string; publication_id: string; ok: number; status_code: number | null; note: string; checked_at: string; gates_json: string }> {
+  const rows = getDb().prepare(`SELECT c.* FROM publication_checks c JOIN publications p ON p.id = c.publication_id
+    WHERE p.workspace_id = ? ORDER BY c.checked_at DESC LIMIT 100`).all(workspaceId()) as unknown as Array<Record<string, unknown>>;
+  // 旧库补列前可能没有 gates_json，统一兜底成空数组，避免界面拿到 undefined
+  return rows.map((r) => ({ ...r, gates_json: (r.gates_json as string) ?? "[]" })) as unknown as ReturnType<typeof listPublicationChecks>;
+}
+
+
+/* ------------------------------------------------------------------ *
+ * 发布后验收：页面 / 站点地图 / 可抓取性
+ *
+ * 三项都要过才算「发布可用」，任何一项不过都必须显示原因 ——
+ * 「页面 200」不等于「AI 能看见」，中间还隔着 robots.txt 和 sitemap。
+ * ------------------------------------------------------------------ */
+
+export interface PublishGate {
+  id: "page" | "robots" | "sitemap";
+  label: string;
+  ok: boolean;
+  detail: string;
+}
+
+export interface PublishReadiness {
+  url: string;
+  ok: boolean;
+  gates: PublishGate[];
+  checkedAt: string;
+}
+
+/** 抓取器签名。抽成参数是为了让门槛逻辑可被单测覆盖 —— 只靠人工点击验证不算验证。 */
+export type PublishGateFetcher = (url: string) => Promise<{ ok: boolean; status: number | null; body: string | null; error?: string }>;
+
+const defaultGateFetcher: PublishGateFetcher = async (url) => {
+  try {
+    const r = await fetchPage(url, { allowTypes: ["text/plain", "text/html", "application/xml", "text/xml"] });
+    return { ok: r.ok, status: r.status ?? null, body: r.body ?? null, error: r.error };
+  } catch (e) {
+    return { ok: false, status: null, body: null, error: e instanceof Error ? e.message : "抓取失败" };
+  }
+};
+
+/**
+ * 检查一个已发布 URL 是否真的「对 AI 可见」。
+ *
+ * robots 门槛只对 CRITICAL_BOTS（有厂商一手证据的 AI 抓取方）判定：
+ * 一个冷门爬虫被挡不构成阻断，但把 GPTBot / Bytespider 挡住就是实质阻断。
+ */
+export async function checkPublishReadiness(rawUrl: string, fetcher: PublishGateFetcher = defaultGateFetcher): Promise<PublishReadiness> {
+  const checkedAt = timestamp();
+  const gates: PublishGate[] = [];
+
+  const parsed = new URL(rawUrl);
+  const path = parsed.pathname + parsed.search;
+  const origin = parsed.origin;
+
+  // 抓取器本身抛错时不能把异常抛给调用方：门槛检查失败本身就是结论。
+  const safeFetch: PublishGateFetcher = async (url) => {
+    try {
+      return await fetcher(url);
+    } catch (e) {
+      return { ok: false, status: null, body: null, error: e instanceof Error ? e.message : "抓取失败" };
+    }
+  };
+
+  // —— 门槛 1：页面本身可抓取 ——
+  const page = await safeFetch(rawUrl);
+  const visible = (page.body ?? "").replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+  const pageOk = page.ok && visible.length > 200;
+  gates.push({
+    id: "page",
+    label: "页面可公开抓取",
+    ok: pageOk,
+    detail: pageOk
+      ? `HTTP ${page.status}，正文约 ${visible.length} 字`
+      : page.error || `HTTP ${page.status ?? "无响应"}，正文仅 ${visible.length} 字（疑似登录墙/空白页/纯前端渲染）`,
+  });
+
+  // —— 门槛 2：robots.txt 未挡住 AI 抓取方 ——
+  const robots = await safeFetch(`${origin}/robots.txt`);
+  if (!robots.ok || !robots.body) {
+    // 没有 robots.txt 等于默认全放行，不是失败
+    gates.push({
+      id: "robots",
+      label: "robots.txt 未拦截 AI 抓取方",
+      ok: true,
+      detail: `未读到 robots.txt（HTTP ${robots.status ?? "无响应"}）。缺失按全放行处理。`,
+    });
+  } else {
+    const parsedRobots = parseRobots(robots.body);
+    const blocked = CRITICAL_BOTS.filter((b) => !isAllowed(parsedRobots, b.token, path).allowed);
+    gates.push({
+      id: "robots",
+      label: "robots.txt 未拦截 AI 抓取方",
+      ok: blocked.length === 0,
+      detail: blocked.length === 0
+        ? `已核对 ${CRITICAL_BOTS.length} 个关键 AI 抓取方，${path} 全部放行`
+        : `被拦截：${blocked.map((b) => b.token).join("、")} —— 这些抓取方看不到本页`,
+    });
+  }
+
+  // —— 门槛 3：站点地图包含该 URL ——
+  const sitemaps = robots.ok && robots.body ? declaredSitemaps(parseRobots(robots.body)) : [];
+  const candidates = sitemaps.length > 0 ? sitemaps : [`${origin}/sitemap.xml`];
+  const docs = await Promise.all(candidates.slice(0, 3).map((sm) => safeFetch(sm)));
+  const hits = docs.filter((d) => d.ok && d.body && (d.body.includes(rawUrl) || d.body.includes(path)));
+  gates.push({
+    id: "sitemap",
+    label: "站点地图已收录该 URL",
+    ok: hits.length > 0,
+    detail: hits.length > 0
+      ? `在 ${candidates[docs.findIndex((d) => d === hits[0])]} 中找到该 URL`
+      : `已检查 ${candidates.slice(0, 3).join("、")}，均未包含该 URL —— 搜索引擎可能发现不了这页`,
+  });
+
+  return { url: rawUrl, ok: gates.every((g) => g.ok), gates, checkedAt };
 }

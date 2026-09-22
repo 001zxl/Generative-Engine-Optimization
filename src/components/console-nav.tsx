@@ -18,6 +18,9 @@ import {
   IconSend,
   IconChartLine,
   IconLogout,
+  IconWorldPin,
+  IconMapSearch,
+  IconReportAnalytics,
 } from "@tabler/icons-react";
 import {
   Sidebar,
@@ -54,6 +57,17 @@ const SECTIONS = [
       { href: "/console/content", label: "6 · 内容与推广", icon: IconFileText },
       { href: "/console/publishing", label: "7 · 发布与复测", icon: IconSend },
       { href: "/console/experiments", label: "8 · 基线与复测", icon: IconChartLine },
+    ],
+  },
+  {
+    // 本地门店是第二条链路：从门店建档到效果报告，顺序同样不能乱。
+    // 它和上面的品牌链路共用采样与评估，但门店/定位方式维度是独立轴。
+    label: "本地门店 GEO",
+    items: [
+      { href: "/console/stores", label: "A · 门店档案", icon: IconBuildingStore },
+      { href: "/console/map-listings", label: "B · 地图资料核对", icon: IconMapSearch },
+      { href: "/console/geo-sampling", label: "C · 位置采样", icon: IconWorldPin },
+      { href: "/console/geo-report", label: "D · 效果报告", icon: IconReportAnalytics },
     ],
   },
   {

@@ -20,6 +20,8 @@ import {
 import { sampleImportCsv, samplingRunCreate } from "../actions";
 import { observationSave, perplexityCollect } from "./actions";
 import { getApiAttempt, getSampleProvenance, perplexityConfigured } from "@/lib/sampling";
+import { listAnchors, listStores } from "@/lib/db/repo-local";
+import { LOCATION_MODES, DAYPARTS } from "@/lib/db/schema-local";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -49,6 +51,8 @@ export default async function SamplingPage({
   const tasks = selected ? R.listSamplingTasks(selected.id) : [];
   const pending = tasks.filter((t) => t.status === "pending");
   const samples = selected ? R.listSamples(selected.id) : [];
+  const stores = listStores();
+  const anchors = listAnchors();
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-6">
@@ -131,6 +135,55 @@ export default async function SamplingPage({
               <Input id="r-rep" name="repetition" type="number" min={1} max={10} defaultValue={1} className="h-9" />
             </Field>
           </div>
+
+          <fieldset className="grid gap-3 rounded-lg border border-dashed p-3 sm:grid-cols-2 lg:grid-cols-4">
+            <legend className="px-1 text-xs font-medium text-muted-foreground">
+              本地门店维度（品牌级采样全部留空）
+            </legend>
+            <Field label="关联门店" htmlFor="r-store" hint="留空 = 品牌级采样">
+              <select id="r-store" name="storeId" className={SELECT_CLS} defaultValue="">
+                <option value="">（不关联门店）</option>
+                {stores.map((st) => (
+                  <option key={st.id} value={st.id}>
+                    {st.name}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field
+              label="定位方式"
+              htmlFor="r-locmode"
+              hint="没记录就必须留「未标注」，不能默认成真实定位"
+            >
+              <select id="r-locmode" name="locationMode" className={SELECT_CLS} defaultValue="unspecified">
+                {LOCATION_MODES.map((m) => (
+                  <option key={m.value} value={m.value}>
+                    {m.label}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="测试锚点" htmlFor="r-anchor" hint="仅定位方式为真实定位时选">
+              <select id="r-anchor" name="anchorId" className={SELECT_CLS} defaultValue="">
+                <option value="">（无锚点）</option>
+                {anchors.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="时段" htmlFor="r-daypart">
+              <select id="r-daypart" name="daypart" className={SELECT_CLS} defaultValue="">
+                <option value="">（未指定）</option>
+                {DAYPARTS.filter((d) => d.value !== "any").map((d) => (
+                  <option key={d.value} value={d.value}>
+                    {d.label}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          </fieldset>
 
           <Field label="目标引擎（可多选）">
             <div className="grid gap-2 sm:grid-cols-3">
