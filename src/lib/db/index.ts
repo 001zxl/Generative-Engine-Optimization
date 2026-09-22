@@ -2,6 +2,9 @@ import { DatabaseSync } from "node:sqlite";
 import fs from "node:fs";
 import path from "node:path";
 import { SCHEMA_SQL, DEFAULT_WORKSPACE } from "./schema.ts";
+import { SAMPLING_SQL } from "./schema-sampling.ts";
+import { PUBLISHING_SQL } from "./schema-publishing.ts";
+import { EXPERIMENTS_SQL } from "./schema-experiments.ts";
 import { runColumnMigrations } from "./migrate.ts";
 import { newId } from "../id.ts";
 
@@ -20,6 +23,9 @@ function open(): DatabaseSync {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const db = new DatabaseSync(file);
   db.exec(SCHEMA_SQL);
+  db.exec(SAMPLING_SQL);
+  db.exec(PUBLISHING_SQL);
+  db.exec(EXPERIMENTS_SQL);
 
   // 幂等补列：CREATE TABLE IF NOT EXISTS 不会给已存在的表加新列
   const mig = runColumnMigrations(db);

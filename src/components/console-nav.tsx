@@ -15,6 +15,8 @@ import {
   IconFileText,
   IconChartHistogram,
   IconMicroscope,
+  IconSend,
+  IconChartLine,
   IconLogout,
 } from "@tabler/icons-react";
 import {
@@ -50,13 +52,15 @@ const SECTIONS = [
       { href: "/console/sampling", label: "4 · 多平台采样", icon: IconClipboardText },
       { href: "/console/evaluation", label: "5 · 评估与指标", icon: IconChartDots },
       { href: "/console/content", label: "6 · 内容与推广", icon: IconFileText },
+      { href: "/console/publishing", label: "7 · 发布与复测", icon: IconSend },
+      { href: "/console/experiments", label: "8 · 基线与复测", icon: IconChartLine },
     ],
   },
   {
     label: "获客",
     items: [
       { href: "/console/leads", label: "线索", icon: IconUsers },
-      { href: "/console/attribution", label: "7 · 获客归因", icon: IconChartHistogram },
+      { href: "/console/attribution", label: "9 · 获客归因", icon: IconChartHistogram },
     ],
   },
   {

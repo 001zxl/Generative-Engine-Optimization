@@ -565,6 +565,12 @@ export function createSamplingRun(input: { label: string; querySetId: string; sa
   tasks: number;
 } {
   const db = getDb();
+  const qs = one<{ status: string }>("SELECT status FROM query_sets WHERE id = ? AND workspace_id = ?", input.querySetId, workspaceId());
+  if (qs?.status !== "frozen") throw new Error("请先冻结当前工作区的问题集");
+  if (!SAMPLING_MODES.some((m) => m.value === input.samplingMode)) throw new Error("不支持的采样方式");
+  const engines = [...new Set(input.engines.map((e) => e.trim()).filter(Boolean))];
+  if (!engines.length || engines.length > 20) throw new Error("请选择 1–20 个采样平台");
+  if (!Number.isInteger(input.repetition ?? 1) || (input.repetition ?? 1) < 1 || (input.repetition ?? 1) > 10) throw new Error("重复次数必须是 1–10 的整数");
   const runId = newId("run_s");
   run(
     "INSERT INTO sampling_runs (id, workspace_id, query_set_id, label, sampling_mode, status, created_at) VALUES (?, ?, ?, ?, ?, 'open', ?)",
@@ -588,12 +594,12 @@ export function createSamplingRun(input: { label: string; querySetId: string; sa
   );
   let tasks = 0;
   for (const q of questions) {
-    for (const engine of input.engines) {
+    for (const engine of engines) {
       for (let r = 1; r <= rep; r++) {
-        // 幂等键：workspace + 问题 + 引擎 + 采样方式 + 地区 + 重复序号
-        const key = [workspaceId(), q.id, engine, input.samplingMode, input.region ?? "-", r].join("|");
-        stmt.run(newId("task"), workspaceId(), runId, q.id, q.text, engine, input.region ?? null, r, key, now());
-        tasks++;
+        // 相同问题必须能在下一批次复测；幂等范围只能是当前批次。
+        const key = [workspaceId(), runId, q.id, engine, input.samplingMode, input.region ?? "-", r].join("|");
+        const inserted = stmt.run(newId("task"), workspaceId(), runId, q.id, q.text, engine, input.region ?? null, r, key, now());
+        tasks += Number(inserted.changes);
       }
     }
   }
@@ -630,6 +636,12 @@ export function saveSample(input: {
     workspaceId(),
   );
   if (!task) throw new Error("采样任务不存在");
+  if (!input.rawAnswer.trim()) throw new Error("回答不能为空");
+  const existing = one<{ id: string }>(
+    "SELECT id FROM response_samples WHERE run_id = ? AND question_id = ? AND engine = ? AND region IS ? AND repetition = ? LIMIT 1",
+    task.run_id, task.question_id, task.engine, input.region ?? task.region, task.repetition,
+  );
+  if (existing) return { sampleId: existing.id };
 
   const runRow = one<{ sampling_mode: string }>("SELECT sampling_mode FROM sampling_runs WHERE id = ?", task.run_id);
   const sampleId = newId("smp");
@@ -699,6 +711,9 @@ export function getSample(id: string): SampleRow | undefined {
  * 首行为表头。answer 内可含换行（用引号包裹）时按简易 CSV 解析。
  */
 export function importSamplesCsv(runId: string, csv: string): { imported: number; errors: string[] } {
+  const targetRun = one<{ sampling_mode: string }>("SELECT sampling_mode FROM sampling_runs WHERE id = ? AND workspace_id = ?", runId, workspaceId());
+  if (!targetRun) return { imported: 0, errors: ["采样批次不存在"] };
+  if (targetRun.sampling_mode === "official_api") return { imported: 0, errors: ["官方 API 批次必须由连接器采集，请为 CSV 数据另建导入批次"] };
   const rows = parseCsv(csv);
   const errors: string[] = [];
   let imported = 0;
@@ -727,7 +742,11 @@ export function importSamplesCsv(runId: string, csv: string): { imported: number
       continue;
     }
     // 优先匹配已有任务；匹配不到则按「问题文本 + 引擎」建任务，保证导入不丢数据
-    let task = tasks.find((t) => t.question_text.trim() === question && t.engine === engine);
+    let task = tasks.find((t) => t.question_text.trim() === question && t.engine === engine && t.status === "pending");
+    if (!task && tasks.some((t) => t.question_text.trim() === question && t.engine === engine)) {
+      errors.push(`第 ${i + 1} 行：对应任务已采集，不重复写入`);
+      continue;
+    }
     if (!task) {
       const q = one<{ id: string }>(
         "SELECT q.id FROM questions q JOIN sampling_runs r ON r.query_set_id = q.query_set_id WHERE r.id = ? AND q.text = ? LIMIT 1",
@@ -739,7 +758,7 @@ export function importSamplesCsv(runId: string, csv: string): { imported: number
         continue;
       }
       const taskId = newId("task");
-      const key = [workspaceId(), q.id, engine, "import", "-", 1].join("|");
+      const key = [workspaceId(), runId, q.id, engine, "import", "-", 1].join("|");
       run(
         `INSERT OR IGNORE INTO sampling_tasks (id, workspace_id, run_id, question_id, question_text, engine, region, repetition, status, idempotency_key, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, 1, 'pending', ?, ?)`,
@@ -754,6 +773,7 @@ export function importSamplesCsv(runId: string, csv: string): { imported: number
         now(),
       );
       task = { id: taskId, run_id: runId, question_id: q.id, question_text: question, engine, region: ri >= 0 ? (r[ri] ?? "").trim() || null : null, repetition: 1, status: "pending" };
+      tasks.push(task);
     }
     saveSample({
       taskId: task.id,
@@ -762,6 +782,7 @@ export function importSamplesCsv(runId: string, csv: string): { imported: number
       modelVersion: mi >= 0 ? (r[mi] ?? "").trim() || undefined : undefined,
       collectedAt: ci >= 0 ? (r[ci] ?? "").trim() || undefined : undefined,
     });
+    task.status = "collected";
     imported++;
   }
   audit("import", "response_samples", runId, { imported });

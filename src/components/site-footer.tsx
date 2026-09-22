@@ -28,6 +28,9 @@ export function SiteFooter() {
             <Link href="/methods" className="text-muted-foreground hover:text-foreground">
               方法与数据边界
             </Link>
+            <Link href="/knowledge" className="text-muted-foreground hover:text-foreground">
+              知识与实践
+            </Link>
             <Link href="/methods#privacy" className="text-muted-foreground hover:text-foreground">
               隐私说明
             </Link>

@@ -1,6 +1,8 @@
 import type { MetadataRoute } from "next";
 import { site, abs } from "@/lib/site";
 
+export const dynamic = "force-dynamic";
+
 /**
  * 站点 robots：
  *  - 公开页面允许抓取，包括检索型 AI 爬虫（我们自己必须遵守同一套标准）
@@ -11,7 +13,7 @@ export default function robots(): MetadataRoute.Robots {
     rules: [
       {
         userAgent: "*",
-        allow: ["/", "/tools/", "/methods"],
+        allow: ["/", "/tools/", "/methods", "/knowledge/"],
         disallow: ["/console", "/console/", "/r/", "/api/"],
       },
       // 显式放行检索型 AI 爬虫：决定我们能否出现在 AI 答案里

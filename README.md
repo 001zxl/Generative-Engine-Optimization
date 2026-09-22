@@ -1,5 +1,27 @@
 # GEO 获客推广系统 · 批次 1
 
+## 本机部署与推广闭环（2026-09）
+
+本机一键配置和启动：
+
+```bash
+pnpm install --frozen-lockfile
+pnpm local:setup     # 首次生成 .env.local（随机运营台口令，权限 600），不覆盖已有配置
+pnpm build           # 必须在 APP_BASE_URL 已配置后构建
+pnpm migrate
+pnpm local:start     # http://127.0.0.1:3100，仅监听本机
+pnpm local:status
+pnpm local:stop
+```
+
+本机配置文件是 `.env.local`，已被 Git 忽略。首次生成后可在其中查看运营台口令；不要把它提交到仓库。数据库默认 `data/geo-local.db`，与旧 `data/geo.db` 分开。日志保存在 `.local/server.log`。换域名后必须重新 `pnpm build`，再重启服务；静态 metadata 会在构建时生成。
+
+新增链路：在 `/console/content` 创建正文并审核 → `/console/publishing` 发布本站知识页，或配置 WordPress / 发布 Webhook 后人工点击执行 → `/knowledge` 和 sitemap 展示已成功发布文章 → `/console/sampling` 记录带来源的消费者界面原文，或用 Perplexity 官方 Sonar API 逐题采集 → `/console/experiments` 锁定完整真实基线、复制原协议复测并比较前后分子/分母。发布 URL 可在实验干预记录中登记。历史 CSV 和测试回答缺少真实来源，不能作为效果结论。当前没有自动定时采样；外部平台账号缺失时对应操作不可用。
+
+Perplexity 连接器只支持 `official_api` + `Perplexity` 的待采任务，需设置 `PERPLEXITY_API_KEY`，可选 `PERPLEXITY_MODEL=sonar-pro`。API 回答与消费者界面回答始终分开比较。WordPress 发布需 HTTPS 站点与 Application Password；自有 Webhook 需按幂等键处理请求并返回实际公开 URL。没有上述账号时，本站知识页和人工采样仍能完整运行。
+
+本机默认联系方式仅供验证，正式收集咨询前请设置真实 `CONTACT_EMAIL` 与 `LEAD_NOTIFY_WEBHOOK`，移除 `ALLOW_INSECURE_DEFAULTS=1`，使用正式域名重新构建并设置数据备份。项目不会用生成回答伪造 GEO 提升；报告只描述固定问题、模型、采样方式和时间内的观测变化。
+
 面向 GEO（生成式引擎优化）获客推广的 Web 系统。本仓库当前交付**批次 1**：
 工程底座 + 两个免费公开工具 + 可分享结果页 + 最小运营台。
 

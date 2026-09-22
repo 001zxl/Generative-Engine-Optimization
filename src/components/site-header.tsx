@@ -9,6 +9,7 @@ import {
   IconLayoutDashboard,
   IconMenu2,
   IconMicroscope,
+  IconBook,
   IconChevronRight,
 } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
@@ -19,6 +20,7 @@ import { cn } from "@/lib/utils";
 const NAV = [
   { href: "/tools/ai-crawler-check", label: "AI 爬虫检查", icon: IconFileSearch },
   { href: "/tools/citation-readiness", label: "内容可引用性", icon: IconMicroscope },
+  { href: "/knowledge", label: "知识与实践", icon: IconBook },
   { href: "/methods", label: "方法与边界", icon: IconBook2 },
   { href: "/console", label: "运营台", icon: IconLayoutDashboard },
 ];

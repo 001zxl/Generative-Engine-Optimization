@@ -17,7 +17,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { sampleImportCsv, sampleSave, samplingRunCreate } from "../actions";
+import { sampleImportCsv, samplingRunCreate } from "../actions";
+import { observationSave, perplexityCollect } from "./actions";
+import { getApiAttempt, getSampleProvenance, perplexityConfigured } from "@/lib/sampling";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -37,9 +39,9 @@ const SELECT_CLS =
 export default async function SamplingPage({
   searchParams,
 }: {
-  searchParams: Promise<{ run?: string }>;
+  searchParams: Promise<{ run?: string; message?: string; error?: string }>;
 }) {
-  const { run: runParam } = await searchParams;
+  const { run: runParam, message, error } = await searchParams;
   const engines = R.listEngines();
   const runs = R.listSamplingRuns();
   const querySets = R.listQuerySets().filter((q) => q.status === "frozen");
@@ -53,8 +55,9 @@ export default async function SamplingPage({
       <PageHead
         icon={IconClipboardText}
         title="多平台采样"
-        description="保存各 AI 平台对同一批问题的真实回答。先做人工粘贴与 CSV 导入 —— 国内平台没有合规的公开检索 API，而官方 API 与消费端回答存在差异，两者必须分开记录。"
+        description="保存各平台的回答原文、模型、采集时间和引用。消费者界面人工采样与官方 API 采样分开记录。当前自动连接器仅覆盖 Perplexity Sonar。"
       />
+      {(message || error) && <p role="status" className={`rounded-lg border p-3 text-sm ${error ? "border-fail/25 bg-fail-soft text-fail" : "border-ok/25 bg-ok-soft text-ok"}`}>{error || message}</p>}
 
       {querySets.length === 0 && (
         <Card className="border-warn/25 bg-warn-soft">
@@ -74,7 +77,7 @@ export default async function SamplingPage({
       {/* —— 引擎清单 —— */}
       <SectionCard
         title={`引擎清单（${engines.length} 个）`}
-        description="标注了哪些平台有公开 API。国内平台一律只能人工采样。"
+        description="名册表示平台是否有官方 API；本系统目前只接入 Perplexity Sonar。其余平台可使用人工界面采样。"
       >
         <div className="flex flex-wrap gap-1.5">
           {engines.map((e) => (
@@ -95,7 +98,7 @@ export default async function SamplingPage({
       {/* —— 新建采样批次 —— */}
       <SectionCard
         title="新建采样批次"
-        description="任务按「问题 × 引擎 × 重复次数」生成，并带幂等键 —— 重复提交不会产生重复任务。"
+        description="任务按「问题 × 引擎 × 重复次数」生成。相同问题可建立多个批次，以便前后复测。"
       >
         <form action={samplingRunCreate} className="flex flex-col gap-4">
           <div className="grid gap-3 sm:grid-cols-3">
@@ -121,7 +124,7 @@ export default async function SamplingPage({
                 ))}
               </select>
             </Field>
-            <Field label="地区" htmlFor="r-region" hint="如 DE / US，用于分组对比">
+            <Field label="地区" htmlFor="r-region" hint="人工采样可记录 DE / US；当前 Perplexity API 连接器请留空">
               <Input id="r-region" name="region" placeholder="DE" className="h-9" />
             </Field>
             <Field label="每问重复次数" htmlFor="r-rep" hint="AI 回答有随机性，建议 ≥3">
@@ -187,7 +190,7 @@ export default async function SamplingPage({
         <>
           <SectionCard
             title={`录入回答 · ${selected.label}`}
-            description="从任一 AI 平台复制完整回答（含引用来源）粘贴进来。必须粘贴原文，不要摘要 —— 引用抽取依赖原文里的 URL。"
+            description="人工采样请粘贴完整原文并登记模型、带时区时间与引用；Perplexity 官方 API 批次可逐任务采集。未提供分享链接时仍可记录无引用回答。"
             action={
               <span className="text-xs text-muted-foreground">
                 待采 {pending.length} / 共 {tasks.length}
@@ -199,8 +202,7 @@ export default async function SamplingPage({
             ) : (
               <div className="flex flex-col gap-5">
                 {pending.slice(0, 12).map((t) => (
-                  <form key={t.id} action={sampleSave} className="rounded-lg border p-3">
-                    <input type="hidden" name="taskId" value={t.id} />
+                  <div key={t.id} className="rounded-lg border p-3">
                     <div className="flex flex-wrap items-center gap-2">
                       <Badge variant="outline" className="font-normal">
                         {t.engine}
@@ -215,19 +217,36 @@ export default async function SamplingPage({
                       )}
                     </div>
                     <p className="mt-2 text-sm font-medium">{t.question_text}</p>
+                    {selected.sampling_mode === "official_api" ? (
+                      <form action={perplexityCollect} className="mt-3 space-y-2">
+                        <input type="hidden" name="taskId" value={t.id} /><input type="hidden" name="runId" value={selected.id} />
+                        <p className="text-xs text-muted-foreground">仅 Perplexity 官方 Sonar API；与消费者界面回答分开比较。{!perplexityConfigured() && "尚未设置 PERPLEXITY_API_KEY。"}</p>
+                        {getApiAttempt(t.id)?.last_error && <p className="text-xs text-fail">{getApiAttempt(t.id)?.last_error}</p>}
+                        <Button type="submit" size="sm" disabled={t.engine !== "Perplexity" || !perplexityConfigured() || Boolean(getApiAttempt(t.id) && getApiAttempt(t.id)?.state !== "failed")}>采集此题的真实 API 回答</Button>
+                      </form>
+                    ) : selected.sampling_mode === "manual_ui" || selected.sampling_mode === "approved_browser" ? (
+                    <form action={observationSave} className="mt-3 space-y-2">
+                    <input type="hidden" name="taskId" value={t.id} /><input type="hidden" name="runId" value={selected.id} />
                     <Textarea
                       name="rawAnswer"
                       className="mt-2 min-h-24 font-mono text-xs"
                       placeholder="把该平台对这个问题的完整回答粘贴到这里（含引用来源的 URL）…"
                       required
                     />
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      <Input name="modelVersion" required placeholder="实际模型版本，例如平台界面显示值" className="h-8" />
+                      <Input name="collectedAt" required defaultValue={new Date().toISOString()} aria-label="采集时间（带时区）" className="h-8" />
+                      <Input name="sourceUrl" type="url" placeholder="回答分享链接（可选）" className="h-8" />
+                      <Textarea name="citationUrls" placeholder="引用网址（每行一条，选填）" className="min-h-16 text-xs" />
+                    </div>
                     <div className="mt-2 flex flex-wrap items-end gap-2">
-                      <Input name="modelVersion" placeholder="模型版本（可选，如 gpt-5.2）" className="h-8 w-48" />
                       <Button type="submit" size="sm">
                         保存回答
                       </Button>
                     </div>
-                  </form>
+                    </form>
+                    ) : <p className="mt-3 text-xs text-muted-foreground">请使用下方 CSV 导入，并保留原始采样凭据。导入记录不会作为可追溯实验的真实基线。</p>}
+                  </div>
                 ))}
                 {pending.length > 12 && (
                   <p className="text-xs text-muted-foreground">
@@ -240,7 +259,7 @@ export default async function SamplingPage({
 
           <SectionCard
             title="CSV 批量导入"
-            description="适合一次录入几十条。表头需包含 question / engine / answer，可选 region / model_version / collected_at。answer 含逗号或换行时请用双引号包裹。"
+            description="兼容旧数据批量导入。导入记录缺少可核验来源，不能作为真实效果实验的基线。官方 API 批次禁止使用 CSV 冒充接口采样。"
           >
             <form action={sampleImportCsv} className="flex flex-col gap-3">
               <input type="hidden" name="runId" value={selected.id} />
@@ -286,6 +305,7 @@ export default async function SamplingPage({
                         <TableCell className="max-w-96">
                           <div className="truncate text-sm">{s.question_text ?? "（问题已删除）"}</div>
                           <div className="truncate text-xs text-muted-foreground">{s.raw_answer.slice(0, 100)}…</div>
+                          <div className="text-xs text-muted-foreground">{getSampleProvenance(s.id)?.model_version ?? "旧记录 · 缺来源证明"}</div>
                         </TableCell>
                         <TableCell>
                           {s.evaluated > 0 ? (

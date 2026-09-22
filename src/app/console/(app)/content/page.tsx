@@ -38,8 +38,8 @@ const CHANNEL_KINDS = [
  * 模块 6：内容任务与发布。
  *
  * 闭环是「问题缺口 → Brief → 内容 → 审核 → 发布 → 回填 URL → 复测」。
- * 刻意不做自动发布：第三方平台一律人工确认后回填 URL，避免违反平台规则
- * 与出现未经审核的内容。
+ * 未接入的平台保留人工发布并回填 URL；已接入的自有站点和授权渠道
+ * 在审核通过后通过发布中心执行。
  */
 export default function ContentPage() {
   const briefs = R.listBriefs();
@@ -54,13 +54,17 @@ export default function ContentPage() {
       <PageHead
         icon={IconFileText}
         title="内容与推广"
-        description="把「诊断出的缺口」变成「已发布的内容」。不做自动发布 —— 第三方平台一律人工确认后回填 URL，避免违反平台规则或发布未经审核的内容。"
+        description="把问题缺口变成可引用内容。自有站点和授权渠道的发布请在发布中心执行；其他第三方平台由人工发布后回填 URL。"
         badge={
           <Badge variant="outline" className="font-normal">
             {assets.length} 篇内容 · {publications.length} 次发布
           </Badge>
         }
       />
+
+      <p className="text-sm text-muted-foreground">
+        已审核内容可进入 <Link href="/console/publishing" className="underline underline-offset-2">发布中心</Link>；未经授权的平台仍采用人工发布与 URL 回填。
+      </p>
 
       {/* —— Brief —— */}
       <SectionCard
