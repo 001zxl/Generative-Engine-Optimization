@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { IconMapSearch, IconPlus, IconAlertTriangle, IconShieldLock } from "@tabler/icons-react";
 import * as L from "@/lib/db/repo-local";
-import { MAP_PLATFORMS, CLAIM_STATUS } from "@/lib/db/schema-local";
+import { MAP_PLATFORMS, MAP_PLATFORM_LABEL, CLAIM_STATUS } from "@/lib/db/schema-local";
 import { PageHead, SectionCard, Field, InlineForm, DangerForm, StatusPill } from "@/components/console-form";
 import { EmptyState } from "@/components/check-parts";
 import { Badge } from "@/components/ui/badge";
@@ -81,6 +81,14 @@ export default async function MapListingsPage({ searchParams }: { searchParams: 
         }
       />
 
+      {selected.note && (
+        <Alert className="border-warn/25 bg-warn-soft">
+          <IconAlertTriangle className="size-4 text-warn" />
+          <AlertTitle>建档备注（会影响「你核对的是不是同一家店」）</AlertTitle>
+          <AlertDescription>{selected.note}</AlertDescription>
+        </Alert>
+      )}
+
       <Alert>
         <IconShieldLock className="size-4" />
         <AlertTitle>首版边界：只读查询 + 人工修正</AlertTitle>
@@ -112,7 +120,9 @@ export default async function MapListingsPage({ searchParams }: { searchParams: 
             {listings.map((l) => (
               <div key={l.id} className="rounded-lg border p-3">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-mono text-xs text-primary">{l.platform}</span>
+                  <span className="text-sm font-medium">
+                    {MAP_PLATFORM_LABEL[l.platform as keyof typeof MAP_PLATFORM_LABEL] ?? l.platform}
+                  </span>
                   <Badge variant="outline" className="font-normal">
                     {CLAIM_STATUS.find((c) => c.value === l.claim_status)?.label ?? l.claim_status}
                   </Badge>
@@ -165,7 +175,7 @@ export default async function MapListingsPage({ searchParams }: { searchParams: 
           <Field label="平台" htmlFor="ml-p">
             <select id="ml-p" name="platform" className={SEL} required defaultValue="google_business_profile">
               {MAP_PLATFORMS.map((p) => (
-                <option key={p} value={p}>{p}</option>
+                <option key={p} value={p}>{MAP_PLATFORM_LABEL[p]}</option>
               ))}
             </select>
           </Field>

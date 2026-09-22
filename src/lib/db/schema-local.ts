@@ -66,6 +66,22 @@ export const MAP_PLATFORMS = [
   "other",
 ] as const;
 
+/**
+ * 平台显示名。
+ *
+ * 库里存内部标识（迁移与对接用），界面必须显示人能读的名字 ——
+ * 餐馆老板看到 `amap` 不知道是什么，看到「高德地图」才知道去哪核对。
+ */
+export const MAP_PLATFORM_LABEL: Record<(typeof MAP_PLATFORMS)[number], string> = {
+  google_business_profile: "Google 商家资料",
+  apple_business_connect: "Apple 地图",
+  bing_places: "Bing 地点",
+  amap: "高德地图",
+  baidu_map: "百度地图",
+  tencent_map: "腾讯地图",
+  other: "其他平台",
+};
+
 export const CLAIM_STATUS = [
   { value: "claimed_by_us", label: "已认领（我方）" },
   { value: "claimed_by_other", label: "已被他人认领" },
