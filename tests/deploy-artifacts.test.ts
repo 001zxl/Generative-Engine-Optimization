@@ -150,3 +150,23 @@ test("部署文档说明了回滚与恢复演练", () => {
   const gitignore = read(".gitignore");
   assert.match(gitignore, /^\.env\.\*$/m, ".env.production 必须被 gitignore 覆盖");
 });
+
+/* ---------------- 采样证据的数据库约束 ---------------- */
+
+test("数据库层拒绝把「本平台生成的模拟回答」写成证据", () => {
+  const schema = read("src/lib/db/schema-sampling.ts");
+  // 注意要抓 IN (...) 里的列表，而不是 CHECK (...) 的外层括号
+  const m = /evidence_kind\s+TEXT\s+NOT\s+NULL\s+CHECK\s*\(\s*evidence_kind\s+IN\s*\(([^)]*)\)/i.exec(schema);
+  assert.ok(m, "sample_provenance.evidence_kind 必须有 CHECK 约束");
+  const allowed = m[1].split(",").map((v) => v.trim().replace(/^'|'$/g, ""));
+  assert.deepEqual(allowed.sort(), ["fixture", "manual_ui", "official_api"]);
+  assert.ok(!allowed.includes("synthetic"), "不得允许 synthetic —— 自己编的回答不能当外部结果");
+});
+
+test("纯逻辑里的证据种类与数据库 CHECK 完全一致", async () => {
+  const { EVIDENCE_KINDS } = await import("../src/lib/sample-evidence.ts");
+  const schema = read("src/lib/db/schema-sampling.ts");
+  const m = /evidence_kind\s+TEXT\s+NOT\s+NULL\s+CHECK\s*\(\s*evidence_kind\s+IN\s*\(([^)]*)\)/i.exec(schema)!;
+  const allowed = m[1].split(",").map((v) => v.trim().replace(/^'|'$/g, "")).sort();
+  assert.deepEqual(EVIDENCE_KINDS.map((k) => k.value).sort(), allowed);
+});

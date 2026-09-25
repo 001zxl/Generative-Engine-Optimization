@@ -22,6 +22,8 @@ import {
 import { listStores, storeReadiness, listRunsByLocationMode, listFactEvalsForRun, countLeadsForStore } from "@/lib/db/repo-local";
 import { listMetricSnapshots } from "@/lib/db/repo-domains";
 import { LOCATION_MODES } from "@/lib/db/schema-local";
+import { collectSampleEvidence } from "@/lib/sampling";
+import { assessEvidence, EVIDENCE_VERDICT_LABEL } from "@/lib/sample-evidence";
 import {
   compareBaseline,
   computeFactErrorRate,
@@ -96,6 +98,8 @@ export default async function GeoReportPage({
     );
   }
 
+  // 证据充分性：样本量或凭证不足时，报告整体标记「不可判定」而不是照常给数字
+  const evidence = assessEvidence(collectSampleEvidence());
   const readiness = storeReadiness(selected.id);
   const leadStats = countLeadsForStore(selected.id);
   const groups = listRunsByLocationMode(selected.id);
@@ -189,6 +193,63 @@ export default async function GeoReportPage({
             <p className="mt-2 text-xs text-muted-foreground">
               前提不满足时下面的数字仍会照常显示，但请当作「尚不可解释」——
               例如还没核验过事实，事实错误率就没有分母。
+            </p>
+          </CardContent>
+        )}
+      </Card>
+
+      {/* —— 证据充分性 —— */}
+      <Card
+        className={
+          evidence.verdict === "sufficient"
+            ? "border-ok/30 bg-ok-soft"
+            : evidence.verdict === "insufficient"
+              ? "border-warn/25 bg-warn-soft"
+              : "border-fail/25 bg-fail-soft"
+        }
+      >
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <IconInfoCircle className="size-4" />
+            证据判定：{EVIDENCE_VERDICT_LABEL[evidence.verdict]}
+          </CardTitle>
+          <CardDescription>{evidence.note}</CardDescription>
+        </CardHeader>
+        {evidence.groups.length > 0 && (
+          <CardContent>
+            <div className="flex flex-col gap-2">
+              {evidence.groups.map((g) => (
+                <div key={g.key} className="rounded-md border p-2 text-xs">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span
+                      className={`rounded border px-1.5 py-0.5 ${
+                        g.verdict === "sufficient"
+                          ? "border-ok/30 bg-ok-soft text-ok"
+                          : g.verdict === "insufficient"
+                            ? "border-warn/30 bg-warn-soft text-warn"
+                            : "border-fail/30 bg-fail-soft text-fail"
+                      }`}
+                    >
+                      {EVIDENCE_VERDICT_LABEL[g.verdict]}
+                    </span>
+                    <span className="font-medium">
+                      {g.protocolId ? "已绑定协议" : "未绑定协议"} · {g.surface === "official_api" ? "官方 API" : "消费者界面"}
+                      {" · "}
+                      {MODE_LABEL[g.locationMode] ?? g.locationMode}
+                      {" · "}
+                      {g.webSearch ? "联网" : "不联网"}
+                    </span>
+                    <span className="text-muted-foreground">
+                      可信样本 {g.countable}/{g.total}，带凭证 {g.traceable}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-muted-foreground">{g.note}</p>
+                </div>
+              ))}
+            </div>
+            <p className="mt-2 text-xs text-muted-foreground">
+              本组统计按「协议 × 界面 × 定位方式 × 联网状态」分组。不同组不能合并 ——
+              消费者界面与官方 API、真实定位与只写地名，拿到的回答不是一回事。
             </p>
           </CardContent>
         )}

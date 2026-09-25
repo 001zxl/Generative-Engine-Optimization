@@ -68,6 +68,12 @@ export const PROTOCOL_COLUMN_MIGRATIONS = [
     note: "样本级联网标记，随批次写入后不可变",
   },
   {
+    table: "sample_provenance",
+    column: "collected_by",
+    ddl: "collected_by TEXT",
+    note: "采样人员；凭据不足时报告要标「不可判定」，而不可判定的第一件事就是「谁采的」",
+  },
+  {
     table: "response_samples",
     column: "model_version",
     ddl: "model_version TEXT",

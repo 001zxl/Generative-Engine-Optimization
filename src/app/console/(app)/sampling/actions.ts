@@ -14,9 +14,16 @@ export async function observationSave(fd: FormData): Promise<void> {
   let message = "回答原文、模型与来源已保存";
   let failed = false;
   try {
-    saveManualObservation({ taskId: value(fd, "taskId"), answer: value(fd, "rawAnswer"),
-      modelVersion: value(fd, "modelVersion"), collectedAt: value(fd, "collectedAt"),
-      sourceUrl: value(fd, "sourceUrl"), citationUrls: value(fd, "citationUrls") });
+    saveManualObservation({
+      taskId: value(fd, "taskId"),
+      answer: value(fd, "rawAnswer"),
+      modelVersion: value(fd, "modelVersion"),
+      collectedAt: value(fd, "collectedAt"),
+      sourceUrl: value(fd, "sourceUrl"),
+      screenshotPath: value(fd, "screenshotPath"),
+      citationUrls: value(fd, "citationUrls"),
+      collectedBy: value(fd, "collectedBy"),
+    });
   } catch (error) { failed = true; message = errorText(error); }
   revalidatePath("/console/sampling");
   redirect(`/console/sampling?run=${encodeURIComponent(runId)}&${failed ? "error" : "message"}=${encodeURIComponent(message)}`);

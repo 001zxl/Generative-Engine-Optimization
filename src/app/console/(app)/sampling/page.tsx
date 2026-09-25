@@ -316,9 +316,15 @@ export default async function SamplingPage({
                     <div className="grid gap-2 sm:grid-cols-2">
                       <Input name="modelVersion" required placeholder="实际模型版本，例如平台界面显示值" className="h-8" />
                       <Input name="collectedAt" required defaultValue={new Date().toISOString()} aria-label="采集时间（带时区）" className="h-8" />
-                      <Input name="sourceUrl" type="url" placeholder="回答分享链接（可选）" className="h-8" />
-                      <Textarea name="citationUrls" placeholder="引用网址（每行一条，选填）" className="min-h-16 text-xs" />
+                      <Input name="sourceUrl" type="url" placeholder="回答分享链接（与截图至少留一个）" className="h-8" />
+                      <Input name="screenshotPath" placeholder="截图路径或链接（与分享链接至少留一个）" className="h-8" />
+                      <Input name="collectedBy" placeholder="采样人员（谁采的）" className="h-8" />
+                      <Textarea name="citationUrls" placeholder="引用网址（每行一条，选填）" className="min-h-16 text-xs sm:col-span-2" />
                     </div>
+                    <p className="mt-1.5 text-xs text-muted-foreground">
+                      分享链接与截图至少要留一个 —— 两者都没有的样本会被标为「不可追溯」，报告的证据判定会因此降级。
+                      「本平台生成的模拟回答」不能填在这里：数据库层会拒绝写入。
+                    </p>
                     <div className="mt-2 flex flex-wrap items-end gap-2">
                       <Button type="submit" size="sm">
                         保存回答
