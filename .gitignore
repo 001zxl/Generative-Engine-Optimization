@@ -22,3 +22,6 @@ screenshots/
 backups/
 deploy/backups/
 .local/
+# 静态导出产物（生成物，不入库）
+static-site/
+export-manifest.json

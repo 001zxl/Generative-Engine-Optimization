@@ -30,7 +30,9 @@
     "preflight:build": "node scripts/preflight.ts build",
     "preflight:runtime": "node scripts/preflight.ts runtime",
     "db:backup": "bash deploy/backup.sh",
-    "db:restore-drill": "bash deploy/restore.sh --drill"
+    "db:restore-drill": "bash deploy/restore.sh --drill",
+    "export:static": "node --experimental-strip-types scripts/export-static.ts",
+    "e2e:export": "node --experimental-strip-types scripts/e2e-static-export.ts"
   },
   "dependencies": {
     "@tabler/icons-react": "^3.47.0",

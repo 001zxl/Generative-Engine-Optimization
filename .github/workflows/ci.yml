@@ -110,6 +110,12 @@ jobs:
       - name: 公开页端到端
         run: node --experimental-strip-types scripts/e2e-public-pages.ts /tmp/fixture.db http://127.0.0.1:3101
 
+      - name: 静态导出（只导出已公开内容）
+        run: |
+          rm -f /tmp/export.db*
+          STATIC_EXPORT_BASE_URL=https://ci.example.com \
+            node --experimental-strip-types scripts/e2e-static-export.ts /tmp/export.db
+
       - name: 停止夹具服务
         if: always()
         run: pkill -f "next start -p 3101" || true

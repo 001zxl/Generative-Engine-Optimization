@@ -42,3 +42,5 @@ docs/
 .github/
 .vscode/
 .idea/
+# 静态导出产物
+static-site/

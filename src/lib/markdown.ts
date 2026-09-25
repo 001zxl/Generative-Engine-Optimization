@@ -10,7 +10,7 @@
  *
  * 明确不支持的语法（保持简单，避免"看起来支持其实出错"）：
  *  - 原始 HTML：一律按纯文本转义显示
- *  - 引用块、嵌套列表、图片、脚注、HTML 实体解码
+ *  - 引用块、嵌套列表、脚注、HTML 实体解码
  *  - 行内 HTML 标签
  */
 export type HeadingLevel = 2 | 3 | 4;
@@ -19,7 +19,14 @@ export type InlineNode =
   | { type: "text"; value: string }
   | { type: "link"; href: string; children: InlineNode[] }
   | { type: "strong"; children: InlineNode[] }
-  | { type: "code"; value: string };
+  | { type: "code"; value: string }
+  /**
+   * 图片。
+   *
+   * `local` 表示这是站内相对路径 —— 导出静态站时这类资源必须真实存在，
+   * 否则上传到 Pages 后就是一个裂图。外链 http(s) 图片不做存在性检查。
+   */
+  | { type: "image"; src: string; alt: string; local: boolean };
 
 export type Block =
   | { type: "heading"; level: HeadingLevel; children: InlineNode[] }
@@ -54,6 +61,53 @@ export function safeHref(raw: string): string | null {
   return ALLOWED_SCHEMES.has(m[0].toLowerCase()) ? value : null;
 }
 
+/**
+ * 图片地址白名单。
+ *
+ * 比链接更严：额外拒绝 `data:`（把图片塞进 HTML 会让页面体积失控，
+ * 也会让静态站的资源清单失去意义）。
+ */
+export function safeImageSrc(raw: string): string | null {
+  const value = raw.trim();
+  if (!value) return null;
+  if (/^data:/i.test(value)) return null;
+  if (value.startsWith("//")) return null;
+  const scheme = SCHEME_RE.exec(value);
+  if (scheme) {
+    // 有协议：只放行 http(s)
+    return ALLOWED_SCHEMES.has(scheme[0].toLowerCase()) ? value : null;
+  }
+  // 纯相对路径（如 `assets/store.jpg`）—— 链接那里因为"裸路径不猜"而拒绝，
+  // 但图片的相对路径在静态站里只可能落在站内，放行；能否逃出根目录由
+  // localAssetPath 判定，导出阶段会据此报错。
+  return localAssetPath(value) !== null ? value : null;
+}
+
+/**
+ * 判断图片是不是站内相对路径，并给出规范化后的相对路径。
+ *
+ * 拒绝逃出站点根目录的路径（`../` 归一化后仍带 `..`）——
+ * 静态站上它只会 404，但在导出阶段就该被拦下并报错。
+ */
+export function localAssetPath(src: string): string | null {
+  const value = src.trim();
+  if (!value) return null;
+  if (/^https?:/i.test(value) || value.startsWith("//")) return null;
+  if (value.startsWith("#")) return null;
+  const cleaned = value.replace(/^\.\//, "").replace(/^\//, "");
+  const parts: string[] = [];
+  for (const seg of cleaned.split("/")) {
+    if (!seg || seg === ".") continue;
+    if (seg === "..") {
+      if (parts.length === 0) return null; // 逃出根目录
+      parts.pop();
+      continue;
+    }
+    parts.push(seg);
+  }
+  return parts.length > 0 ? parts.join("/") : null;
+}
+
 /** 外站链接才加 target/rel；站内链接保持同页跳转，避免无意义的新开标签页 */
 export function isExternalHref(href: string): boolean {
   return /^https?:/i.test(href);
@@ -80,7 +134,10 @@ function escapeHtml(text: string): string {
  * 到同一个位置，last 不再前进 —— 直接死循环直到 OOM。
  * 每次调用构造独立的局部正则，状态就不会互相踩。
  */
-const INLINE_PATTERN = "\\[([^\\]\\n]*)\\]\\(([^()\\s]*)\\)|`([^`\\n]+)`|\\*\\*([^*\\n]+)\\*\\*";
+// 图片分支必须排在链接之前：否则 `![alt](src)` 会先命中链接分支，
+// 前面的 `!` 被当成普通文本，页面上会出现一个多余的感叹号。
+const INLINE_PATTERN =
+  "!\\[([^\\]\\n]*)\\]\\(([^()\\s]*)\\)|\\[([^\\]\\n]*)\\]\\(([^()\\s]*)\\)|`([^`\\n]+)`|\\*\\*([^*\\n]+)\\*\\*";
 
 /**
  * 行内解析。
@@ -97,18 +154,28 @@ export function parseInline(text: string): InlineNode[] {
   while ((m = inlineRe.exec(text)) !== null) {
     if (m.index > last) nodes.push({ type: "text", value: text.slice(last, m.index) });
     if (m[1] !== undefined && m[2] !== undefined) {
-      const href = safeHref(m[2]);
+      // 图片
+      const src = safeImageSrc(m[2]);
+      const local = src ? localAssetPath(src) : null;
+      if (src) {
+        nodes.push({ type: "image", src, alt: m[1], local: local !== null });
+      } else {
+        // 非法图片地址：保留说明文字，不输出 img
+        nodes.push({ type: "text", value: m[1] ? `${m[1]}（图片地址不可用）` : "（图片地址不可用）" });
+      }
+    } else if (m[3] !== undefined && m[4] !== undefined) {
+      const href = safeHref(m[4]);
       if (href) {
-        nodes.push({ type: "link", href, children: parseInline(m[1]) });
+        nodes.push({ type: "link", href, children: parseInline(m[3]) });
       } else {
         // 非法链接：保留可见文字，丢掉链接，不静默吞掉内容
-        nodes.push({ type: "text", value: m[1] });
-        nodes.push({ type: "text", value: ` (${m[2]})` });
+        nodes.push({ type: "text", value: m[3] });
+        nodes.push({ type: "text", value: ` (${m[4]})` });
       }
-    } else if (m[3] !== undefined) {
-      nodes.push({ type: "code", value: m[3] });
-    } else if (m[4] !== undefined) {
-      nodes.push({ type: "strong", children: parseInline(m[4]) });
+    } else if (m[5] !== undefined) {
+      nodes.push({ type: "code", value: m[5] });
+    } else if (m[6] !== undefined) {
+      nodes.push({ type: "strong", children: parseInline(m[6]) });
     }
     last = m.index + m[0].length;
   }
@@ -232,6 +299,10 @@ export function inlineToHtml(nodes: InlineNode[]): string {
       if (n.type === "text") return escapeHtml(n.value);
       if (n.type === "code") return `<code>${escapeHtml(n.value)}</code>`;
       if (n.type === "strong") return `<strong>${inlineToHtml(n.children)}</strong>`;
+      if (n.type === "image") {
+        // 静态站的图片一律懒加载；alt 必须转义，它也是可读内容
+        return `<img src="${escapeHtml(n.src)}" alt="${escapeHtml(n.alt)}" loading="lazy" decoding="async">`;
+      }
       const rel = isExternalHref(n.href) ? ' target="_blank" rel="noopener noreferrer"' : "";
       return `<a href="${escapeHtml(n.href)}"${rel}>${inlineToHtml(n.children)}</a>`;
     })
@@ -287,6 +358,7 @@ export function inlineToPlainText(nodes: InlineNode[]): string {
     .map((n) => {
       if (n.type === "text") return n.value;
       if (n.type === "code") return n.value;
+      if (n.type === "image") return n.alt;
       return inlineToPlainText(n.children);
     })
     .join("");

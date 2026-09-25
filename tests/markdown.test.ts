@@ -5,6 +5,8 @@ import {
   markdownToHtml,
   markdownToPlainText,
   safeHref,
+  safeImageSrc,
+  localAssetPath,
   summarizeBlocks,
 } from "../src/lib/markdown.ts";
 
@@ -175,4 +177,59 @@ test("空输入不抛错", () => {
 test("CRLF 换行与多余空行不影响解析", () => {
   const blocks = parseMarkdown("甲\r\n\r\n\r\n## 乙\r\n");
   assert.deepEqual(blocks.map((b) => b.type), ["paragraph", "heading"]);
+});
+
+/* ---------------- 图片 ---------------- */
+
+test("图片渲染成 img，带 alt 与懒加载", () => {
+  const html = markdownToHtml("![门店门头](/assets/store.jpg)");
+  assert.match(html, /<img src="\/assets\/store\.jpg" alt="门店门头" loading="lazy"/);
+});
+
+test("图片语法不会被误解析成「!」加链接", () => {
+  const html = markdownToHtml("![图](/a.png)");
+  assert.ok(!html.includes("</a>"), html);
+  assert.ok(!/>!\[/.test(html));
+});
+
+test("外链图片放行，data: 图片被拒（避免页面体积失控）", () => {
+  assert.match(markdownToHtml("![x](https://cdn.example/a.png)"), /<img src="https:\/\/cdn\.example\/a\.png"/);
+  const html = markdownToHtml("![x](data:image/png;base64,AAAA)");
+  assert.ok(!html.includes("<img"), html);
+  assert.match(html, /图片地址不可用/);
+});
+
+test("javascript: 图片地址被拒", () => {
+  const html = markdownToHtml("![x](javascript:alert(1))");
+  assert.ok(!html.includes("<img"), html);
+});
+
+test("本地图片路径标记为 local（导出时必须存在）", () => {
+  const blocks = parseMarkdown("![a](/assets/a.png) ![b](https://cdn.example/b.png) ![c](assets/c.png)");
+  const images = (blocks[0].type === "paragraph" ? blocks[0].children : []).filter((n) => n.type === "image");
+  const bySrc = Object.fromEntries(images.map((n) => [n.type === "image" ? n.src : "", n.type === "image" ? n.local : false]));
+  assert.equal(bySrc["/assets/a.png"], true);
+  assert.equal(bySrc["https://cdn.example/b.png"], false);
+  assert.equal(bySrc["assets/c.png"], true);
+});
+
+test("逃出站点根目录的图片路径被规范化为 null（导出阶段就该拦下）", () => {
+  assert.equal(localAssetPath("../../etc/passwd"), null);
+  assert.equal(localAssetPath("/a/../b.png"), "b.png");
+  assert.equal(localAssetPath("assets/x/y.png"), "assets/x/y.png");
+  assert.equal(localAssetPath("https://x.example/a.png"), null);
+});
+
+test("图片 alt 参与纯文本摘要", () => {
+  const text = markdownToPlainText("![门店门头照片](/a.png) 正文", 100);
+  assert.ok(text.includes("门店门头照片"), text);
+});
+
+test("图片相对路径：裸相对放行，逃出根目录拒绝", () => {
+  assert.equal(safeImageSrc("assets/store.jpg"), "assets/store.jpg");
+  assert.equal(safeImageSrc("./img/a.png"), "./img/a.png");
+  assert.equal(safeImageSrc("/img/a.png"), "/img/a.png");
+  assert.equal(safeImageSrc("../../secret.png"), null);
+  assert.equal(safeImageSrc("file:///etc/passwd"), null);
+  assert.equal(safeImageSrc("vbscript:x"), null);
 });

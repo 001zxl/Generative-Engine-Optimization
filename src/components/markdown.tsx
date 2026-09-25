@@ -40,6 +40,20 @@ function Inline({ nodes }: { nodes: InlineNode[] }) {
             </strong>
           );
         }
+        if (node.type === "image") {
+          // 图片用原生 img：静态站不经过 next/image 优化，保持一致
+          return (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              key={i}
+              src={node.src}
+              alt={node.alt}
+              loading="lazy"
+              decoding="async"
+              className="my-2 h-auto max-w-full rounded-md border"
+            />
+          );
+        }
         const external = isExternalHref(node.href);
         const className = "text-primary underline underline-offset-2 break-words";
         // 站内链接用 Link 保持同页跳转；外站才新开标签页并带 rel
