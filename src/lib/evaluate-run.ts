@@ -8,6 +8,8 @@
  *   抽成普通函数后，这个分支可以被集成测试直接打到。
  */
 import * as R from "./db/repo-domains.ts";
+import * as PC from "./db/repo-protocol.ts";
+import { computeMetricsByCategory, type CategorizedSample } from "./category-metrics.ts";
 import {
   extractFromAnswer,
   computeMetrics,
@@ -31,6 +33,16 @@ export interface EvaluateResult {
   samples: number;
   metrics: Array<{ metric: string; value: number; numerator: number; denominator: number }>;
   notComputable: Array<{ metric: string; reason: string }>;
+  /** 按问题类目分开的结果（方案要求三类分开展示） */
+  byCategory?: Array<{
+    category: string | null;
+    label: string;
+    sampleCount: number;
+    countsTowardRecommendation: boolean;
+    metrics: Array<{ metric: string; value: number; numerator: number; denominator: number }>;
+    competitor: { numerator: number; denominator: number; byEntity: Array<{ entity: string; samples: number }> } | null;
+  }>;
+  notes?: string[];
 }
 
 export const MANUAL_EVALUATOR_VERSION = "1.0.0";
@@ -118,10 +130,68 @@ export function evaluateScope(input: EvaluateScope): EvaluateResult {
     });
   }
 
+  // —— 按问题类目分别落库 ——
+  // 认知题里出现品牌是必然的，与推荐题混算会把提及率做高，而那个数字
+  // 对"能不能被推荐"没有解释力。因此每个类目单独存一份快照，
+  // 报告与复测对比都按同一维度取数。
+  const categoryMap = PC.categoryByQuestionId();
+  const categorized: CategorizedSample[] = forMetrics.map((m) => {
+    const sample = samples.find((s) => s.id === m.sampleId);
+    return {
+      ...m,
+      category: sample?.question_id ? (categoryMap.get(sample.question_id) ?? null) : null,
+    };
+  });
+  const byCategory = computeMetricsByCategory(categorized);
+  for (const block of byCategory.blocks) {
+    for (const m of block.metrics) {
+      R.saveMetricSnapshot({
+        runId: input.runId,
+        metric: m.metric,
+        value: m.value,
+        numerator: m.numerator,
+        denominator: m.denominator,
+        dimension: {
+          basis: m.basis,
+          scope,
+          // 类目是取数维度：报告按它分块，复测对比也只在同类目内进行
+          category: block.category ?? "uncategorized",
+          sampleCount: block.sampleCount,
+          countsTowardRecommendation: block.countsTowardRecommendation,
+        },
+      });
+    }
+    if (block.competitor) {
+      R.saveMetricSnapshot({
+        runId: input.runId,
+        metric: "competitor_mention_rate",
+        value: block.competitor.rate,
+        numerator: block.competitor.numerator,
+        denominator: block.competitor.denominator,
+        dimension: {
+          basis: block.competitor.basis,
+          scope,
+          category: block.category ?? "uncategorized",
+          byEntity: block.competitor.byEntity,
+          sampleCount: block.sampleCount,
+        },
+      });
+    }
+  }
+
   return {
     ok: true,
     scope,
     samples: samples.length,
+    byCategory: byCategory.blocks.map((b) => ({
+      category: b.category,
+      label: b.label,
+      sampleCount: b.sampleCount,
+      countsTowardRecommendation: b.countsTowardRecommendation,
+      metrics: b.metrics.map((m) => ({ metric: m.metric, numerator: m.numerator, denominator: m.denominator, value: m.value })),
+      competitor: b.competitor ? { numerator: b.competitor.numerator, denominator: b.competitor.denominator, byEntity: b.competitor.byEntity } : null,
+    })),
+    notes: byCategory.notes,
     metrics: metrics.map((m) => ({
       metric: m.metric,
       value: m.value,

@@ -241,3 +241,13 @@ export function setQuestionCategory(questionId: string, category: string | null)
   run("UPDATE questions SET category = ? WHERE id = ? AND workspace_id = ?", category, questionId, workspaceId());
   audit("set_category", "question", questionId, { category });
 }
+
+
+/** 问题 id → 分类映射。指标按类目分组时按它归并 */
+export function categoryByQuestionId(): Map<string, string | null> {
+  const rows = all<{ id: string; category: string | null }>(
+    "SELECT id, category FROM questions WHERE workspace_id = ?",
+    workspaceId(),
+  );
+  return new Map(rows.map((r) => [r.id, r.category]));
+}

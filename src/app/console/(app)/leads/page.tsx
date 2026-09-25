@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { IconUsers, IconAlertTriangle, IconCircleCheck, IconBellOff } from "@tabler/icons-react";
 import { listLeads, listUnnotifiedLeads } from "@/lib/db/repo";
+import { buildLeadAttribution, displayOrUnknown, UNKNOWN_LABEL } from "@/lib/lead-attribution";
 import { isNotifyConfigured } from "@/lib/notify";
 import { EmptyState } from "@/components/check-parts";
 import { Badge } from "@/components/ui/badge";
@@ -146,8 +147,33 @@ export default function LeadsPage() {
                         </div>
                       </TableCell>
                       <TableCell className="text-xs text-muted-foreground">
-                        {l.source ?? "—"}
-                        {l.self_reported_source && <div className="text-xs">自述：{l.self_reported_source}</div>}
+                        {(() => {
+                          // 归因：缺失项一律显示「未知」，不留空白 ——
+                          // 空白会被读成"没有来源"，而实际是"我们没采到"
+                          const attr = buildLeadAttribution({
+                            source: l.source,
+                            selfReportedSource: l.self_reported_source,
+                            firstTouchJson: l.first_touch_json ?? null,
+                          });
+                          return (
+                            <>
+                              <div className={attr.channel === UNKNOWN_LABEL ? "text-warn" : ""}>
+                                渠道：{attr.channel}
+                              </div>
+                              <div>落地页：{displayOrUnknown(attr.landingPath)}</div>
+                              {attr.referrerHost && <div>引荐：{attr.referrerHost}</div>}
+                              {Object.keys(attr.utm).length > 0 && (
+                                <div className="font-mono">
+                                  {Object.entries(attr.utm).map(([k, v]) => `${k}=${v}`).join(" ")}
+                                </div>
+                              )}
+                              <div>自述：{displayOrUnknown(attr.selfReported)}</div>
+                              {attr.unknown.length > 0 && (
+                                <div className="text-warn">未知项：{attr.unknown.join("、")}</div>
+                              )}
+                            </>
+                          );
+                        })()}
                       </TableCell>
                       <TableCell>
                         {l.notified_at ? (

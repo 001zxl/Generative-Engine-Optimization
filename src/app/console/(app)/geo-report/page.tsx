@@ -21,8 +21,12 @@ import {
 } from "@/components/ui/table";
 import { listStores, storeReadiness, listRunsByLocationMode, listFactEvalsForRun, countLeadsForStore } from "@/lib/db/repo-local";
 import { listMetricSnapshots } from "@/lib/db/repo-domains";
+import { listCategorySamples } from "@/lib/db/repo-eval-samples";
 import { LOCATION_MODES } from "@/lib/db/schema-local";
 import { collectSampleEvidence } from "@/lib/sampling";
+import { computeMetricsByCategory, computeCitationSourceBlock, type CategorizedSample } from "@/lib/category-metrics";
+import { categoryByQuestionId } from "@/lib/db/repo-protocol";
+import { getApprovedClaims } from "@/lib/db/repo-domains";
 import { assessEvidence, EVIDENCE_VERDICT_LABEL } from "@/lib/sample-evidence";
 import {
   compareBaseline,
@@ -135,6 +139,14 @@ export default async function GeoReportPage({
   });
 
   const totalSamples = groups.reduce((n, g) => n + g.runs.reduce((m, r) => m + r.sample_count, 0), 0);
+
+  // —— 三类结果分开算（方案 B3）——
+  // 认知题里出现品牌是必然的，与推荐题混算会把提及率做高。
+  // 这里复用评测阶段同一套逻辑：只读已存的评测结果，不重算，保证口径一致。
+  const catMap = categoryByQuestionId();
+  const categorized: CategorizedSample[] = listCategorySamples(catMap);
+  const byCategory = computeMetricsByCategory(categorized);
+  const citationBlock = computeCitationSourceBlock(categorized.map((c) => ({ citations: c.citations })));
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-6">
@@ -254,6 +266,119 @@ export default async function GeoReportPage({
           </CardContent>
         )}
       </Card>
+
+      {/* —— 三类结果分开展示 —— */}
+      <SectionCard
+        title="三类结果（认知 / 推荐 / 引用）"
+        description="认知题回答的是「模型对这个品牌的描述准不准」，推荐题与场景题才回答「能不能被推荐」。三类不合并计算。"
+      >
+        {byCategory.blocks.length === 0 ? (
+          <p className="rounded-lg border border-dashed p-3 text-sm text-muted-foreground">
+            还没有已评测的样本。评估后这里会按问题类目分块显示分子/分母。
+          </p>
+        ) : (
+          <div className="flex flex-col gap-4">
+            {byCategory.blocks.map((b) => (
+              <div key={b.category ?? "uncategorized"} className="rounded-lg border p-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-medium">{b.label}</span>
+                  {b.countsTowardRecommendation ? (
+                    <Badge variant="outline" className="border-ok/30 bg-ok-soft font-normal text-ok">
+                      计入推荐判断
+                    </Badge>
+                  ) : (
+                    <Badge variant="outline" className="border-warn/30 bg-warn-soft font-normal text-warn">
+                      不计入推荐判断
+                    </Badge>
+                  )}
+                  <span className="text-xs text-muted-foreground">{b.sampleCount} 条样本</span>
+                </div>
+                <p className="mt-1 text-xs text-muted-foreground">{b.readingNote}</p>
+
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>指标</TableHead>
+                      <TableHead className="w-40">分子 / 分母</TableHead>
+                      <TableHead className="w-24">比率</TableHead>
+                      <TableHead>口径</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {b.metrics.map((m) => (
+                      <TableRow key={m.metric}>
+                        <TableCell className="font-medium">{METRIC_LABEL[m.metric] ?? m.metric}</TableCell>
+                        <TableCell className="tabular-nums text-sm">
+                          {m.numerator} / {m.denominator}
+                        </TableCell>
+                        <TableCell className="tabular-nums text-sm">{pct(m.value)}</TableCell>
+                        <TableCell className="text-xs text-muted-foreground">{m.basis}</TableCell>
+                      </TableRow>
+                    ))}
+                    {b.competitor && (
+                      <TableRow>
+                        <TableCell className="font-medium">竞品出现率</TableCell>
+                        <TableCell className="tabular-nums text-sm">
+                          {b.competitor.numerator} / {b.competitor.denominator}
+                        </TableCell>
+                        <TableCell className="tabular-nums text-sm">{pct(b.competitor.rate)}</TableCell>
+                        <TableCell className="text-xs text-muted-foreground">
+                          {b.competitor.basis}
+                          {b.competitor.byEntity.length > 0 && (
+                            <span className="ml-1">
+                              （{b.competitor.byEntity.map((e) => `${e.entity} ${e.samples}`).join("、")}）
+                            </span>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    )}
+                    {b.notComputable.map((n) => (
+                      <TableRow key={n.metric}>
+                        <TableCell className="font-medium">{METRIC_LABEL[n.metric] ?? n.metric}</TableCell>
+                        <TableCell className="text-xs text-warn" colSpan={3}>
+                          不可计算：{n.reason}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            ))}
+
+            {/* 引用来源单独成块 */}
+            <div className="rounded-lg border p-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-medium">引用来源</span>
+                <Badge variant="outline" className="font-normal">
+                  自有来源被引用 {citationBlock.ownedNumerator} / {citationBlock.denominator}
+                </Badge>
+                <span className="text-sm tabular-nums">{pct(citationBlock.ownedRate)}</span>
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">
+                被提及与被引用是两件事：模型可能提到你，却引用别人的页面来解释你。
+              </p>
+              {citationBlock.byDomain.length > 0 && (
+                <ul className="mt-2 space-y-0.5 text-xs">
+                  {citationBlock.byDomain.slice(0, 10).map((d) => (
+                    <li key={d.domain}>
+                      {d.owned && <span className="text-ok">自有 · </span>}
+                      {d.domain} · {d.samples} 条样本
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            {byCategory.notes.length > 0 && (
+              <ul className="text-xs text-warn">
+                {byCategory.notes.map((n) => (
+                  <li key={n}>· {n}</li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+      </SectionCard>
 
       {/* —— 按定位方式分块 —— */}
       {blocks.length === 0 ? (

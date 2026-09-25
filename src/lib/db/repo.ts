@@ -23,6 +23,8 @@ export interface LeadRecord {
   self_reported_source: string | null;
   source: string | null;
   status: string;
+  /** 首次触点 JSON：referrer / landingPath / utm。B3 的归因展示依赖它 */
+  first_touch_json?: string | null;
   created_at: string;
   owner?: string | null;
   next_follow_up_at?: string | null;
