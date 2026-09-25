@@ -13,7 +13,7 @@ export default function robots(): MetadataRoute.Robots {
     rules: [
       {
         userAgent: "*",
-        allow: ["/", "/tools/", "/methods", "/knowledge/"],
+        allow: ["/", "/tools/", "/methods", "/knowledge/", "/stores/", "/brands/"],
         disallow: ["/console", "/console/", "/r/", "/api/"],
       },
       // 显式放行检索型 AI 爬虫：决定我们能否出现在 AI 答案里

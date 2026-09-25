@@ -20,6 +20,7 @@ import {
   IconLogout,
   IconWorldPin,
   IconMapSearch,
+  IconWorld,
   IconReportAnalytics,
 } from "@tabler/icons-react";
 import {
@@ -69,6 +70,11 @@ const SECTIONS = [
       { href: "/console/geo-sampling", label: "C · 位置采样", icon: IconWorldPin },
       { href: "/console/geo-report", label: "D · 效果报告", icon: IconReportAnalytics },
     ],
+  },
+  {
+    // 公开页面的审核发布：这里的开关决定什么出现在公网上
+    label: "公开页面",
+    items: [{ href: "/console/public-pages", label: "实体页审核发布", icon: IconWorld }],
   },
   {
     label: "获客",

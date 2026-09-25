@@ -41,6 +41,7 @@ const SELECT_CLS =
  * 注意：只有「已批准」的 Claim 会参与评估，草稿不会被拿去比对。
  */
 export default function ClaimsPage() {
+  const brands = R.listBrands();
   const claims = R.listClaims();
   const conflicts = R.listClaimConflicts();
   const phrases = R.listProhibitedPhrases();
@@ -163,6 +164,15 @@ export default function ClaimsPage() {
         description="陈述里尽量带上具体数值（如「500 件起订」）—— 事实一致性评估依赖数值比对，纯形容词无法自动核验。"
       >
         <form action={claimCreate} className="grid gap-3 sm:grid-cols-4">
+          <Field label="归属品牌" htmlFor="c-brand" hint="品牌公开页按品牌取事实，选错品牌该页就是空的">
+            <select id="c-brand" name="brandId" className={SELECT_CLS} defaultValue={R.getDefaultBrandId() ?? ""}>
+              {brands.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.name}
+                </option>
+              ))}
+            </select>
+          </Field>
           <Field label="claim key" htmlFor="c-key" hint="机器标识，如 moq">
             <Input id="c-key" name="claimKey" placeholder="moq" required />
           </Field>

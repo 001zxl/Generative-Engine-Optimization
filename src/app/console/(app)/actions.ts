@@ -112,7 +112,13 @@ export async function claimCreate(fd: FormData) {
   const statement = s(fd, "statement");
   const claimKey = s(fd, "claimKey");
   if (!statement || !claimKey) return;
-  R.createClaim({ claimKey, statement, category: opt(fd, "category"), validUntil: opt(fd, "validUntil") });
+  R.createClaim({
+    claimKey,
+    statement,
+    category: opt(fd, "category"),
+    validUntil: opt(fd, "validUntil"),
+    brandId: opt(fd, "brandId"),
+  });
   refresh(["/console/claims"]);
 }
 

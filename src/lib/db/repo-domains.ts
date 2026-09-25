@@ -338,10 +338,12 @@ export function createPersona(name: string, description?: string): void {
 
 export interface ClaimRow {
   id: string;
+  brand_id: string | null;
   claim_key: string;
   statement: string;
   category: string | null;
   status: string;
+  valid_from: string | null;
   valid_until: string | null;
   evidence_count: number;
   created_at: string;
@@ -361,6 +363,13 @@ export function createClaim(input: {
   category?: string;
   validUntil?: string;
   expectedNumber?: { value: number; unit?: string };
+  /**
+   * 归属品牌。省略时落到默认品牌（最早创建的那个）。
+   *
+   * 之前没有这个参数，导致多个品牌时所有事实都被挂到最早创建的品牌上，
+   * 而品牌公开页是按 brand_id 取事实的 —— 结果只有默认品牌能生成页面。
+   */
+  brandId?: string | null;
 }): string {
   const id = newId("claim");
   const t = now();
@@ -369,7 +378,7 @@ export function createClaim(input: {
      VALUES (?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?)`,
     id,
     workspaceId(),
-    getDefaultBrandId(),
+    input.brandId ?? getDefaultBrandId(),
     input.claimKey,
     input.statement,
     input.category ?? null,
