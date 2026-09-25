@@ -1,0 +1,29 @@
+# 反向代理与自动 HTTPS。
+#
+# 只做三件事：终止 TLS、转发到应用、把真实客户端 IP 传下去。
+# 访问控制（运营台限定内网/VPN）刻意不写在这里 —— 见 README 的说明：
+# 首版要求用 VPN 或独立的反向代理策略限制 /console，而不是靠 Caddy 的基础认证，
+# 因为应用自身已经有口令 + HMAC 会话鉴权，再叠一层会造成两套口令要维护。
+
+{$SITE_DOMAIN} {
+	encode zstd gzip
+
+	# 真实客户端 IP：应用用它做登录失败节流，缺了会把所有人算成同一个 IP
+	reverse_proxy app:3000 {
+		header_up X-Real-IP {remote_host}
+	}
+
+	log {
+		output file /data/access.log {
+			roll_size 10MiB
+			roll_keep 5
+		}
+	}
+
+	header {
+		# 本站对外声明的安全响应头
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		-Server
+	}
+}

@@ -26,7 +26,11 @@
     "local:setup": "node scripts/local-service.mjs setup",
     "local:start": "node scripts/local-service.mjs start",
     "local:status": "node scripts/local-service.mjs status",
-    "local:stop": "node scripts/local-service.mjs stop"
+    "local:stop": "node scripts/local-service.mjs stop",
+    "preflight:build": "node scripts/preflight.ts build",
+    "preflight:runtime": "node scripts/preflight.ts runtime",
+    "db:backup": "bash deploy/backup.sh",
+    "db:restore-drill": "bash deploy/restore.sh --drill"
   },
   "dependencies": {
     "@tabler/icons-react": "^3.47.0",

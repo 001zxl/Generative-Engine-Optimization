@@ -1,0 +1,183 @@
+# CI：类型检查 → 单测 → 构建 → 端到端 → 镜像构建 → 备份/恢复演练
+#
+# 设计取舍：
+#  - 端到端脚本需要夹具服务，所以在 CI 里现起一个，指向临时库。
+#    绝不允许把测试数据写进任何长期存在的库（脚本自身也有 pilot 闸）。
+#  - 镜像构建放在最后：前面几步便宜且快，没必要为一个类型错误付构建镜像的时间。
+#  - 备份/恢复演练必须真跑：只写脚本不演练，等于没有备份。
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # 与开发、生产统一同一个 Node 大版本
+  NODE_VERSION: "24"
+  # 公开配置：CI 里用可解析的公开值，避免 preflight 因占位值拒绝
+  APP_BASE_URL: "https://ci.example.com"
+  SITE_NAME: "CI"
+  CONTACT_EMAIL: "ci@ci.example.com"
+
+jobs:
+  verify:
+    name: 类型检查 / 单测 / 构建
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: 构建期配置校验（公开配置）
+        run: pnpm preflight:build
+
+      - name: 构建期不得要求密钥（密钥不该出现在构建环境）
+        run: |
+          if env -u CONSOLE_PASSWORD -u AUTH_SECRET pnpm preflight:build 2>&1 | grep -q "CONSOLE_PASSWORD"; then
+            echo "::error::构建期不应校验或提及密钥"
+            exit 1
+          fi
+          echo "构建期未涉及密钥"
+
+      - name: 类型检查
+        run: pnpm typecheck
+
+      - name: 单元测试
+        run: pnpm test
+
+      - name: 构建
+        run: pnpm build
+
+      - name: 依赖安全审计
+        run: pnpm audit --audit-level=moderate
+
+  e2e:
+    name: 端到端（夹具库）
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    needs: verify
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+
+      - name: 启动夹具服务
+        env:
+          DATABASE_PATH: /tmp/fixture.db
+          APP_BASE_URL: http://127.0.0.1:3101
+          ALLOW_INSECURE_DEFAULTS: "1"
+          CONSOLE_PASSWORD: fixture-pass
+          AUTH_SECRET: fixture-secret-0123456789abcdef
+        run: |
+          rm -f /tmp/fixture.db*
+          APP_BASE_URL=http://127.0.0.1:3101 npx next start -p 3101 &
+          for i in $(seq 1 40); do
+            if curl -fsS http://127.0.0.1:3101/api/health >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:3101/api/health
+          # 自报必须是 pilot:false —— 否则脚本会拒绝运行
+          curl -fsS http://127.0.0.1:3101/api/health | grep -q '"pilot":false'
+
+      - name: 门店链路端到端
+        run: pnpm e2e:local -- /tmp/fixture.db http://127.0.0.1:3101 fixture-pass
+        env:
+          AUTH_SECRET: fixture-secret-0123456789abcdef
+
+      - name: 内容渲染与发布门槛
+        run: |
+          node --experimental-strip-types scripts/e2e-content-render.ts /tmp/fixture.db http://127.0.0.1:3101 fixture-pass
+          EXTRA_TRUSTED_CIDRS=127.0.0.1/32 node --experimental-strip-types scripts/e2e-publish-gates.ts /tmp/fixture.db http://127.0.0.1:3101
+        env:
+          AUTH_SECRET: fixture-secret-0123456789abcdef
+
+      - name: 公开页端到端
+        run: node --experimental-strip-types scripts/e2e-public-pages.ts /tmp/fixture.db http://127.0.0.1:3101
+
+      - name: 停止夹具服务
+        if: always()
+        run: pkill -f "next start -p 3101" || true
+
+  image:
+    name: 镜像构建
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    needs: verify
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 构建镜像（密钥不参与构建）
+        run: |
+          docker build \
+            -f deploy/Dockerfile \
+            --build-arg APP_BASE_URL="$APP_BASE_URL" \
+            --build-arg SITE_NAME="$SITE_NAME" \
+            --build-arg CONTACT_EMAIL="$CONTACT_EMAIL" \
+            -t geo-growth-engine:ci .
+
+      - name: 确认镜像里没有密钥
+        run: |
+          # 构建期不该出现任何密钥；如果出现了说明 Dockerfile 被人改坏了
+          if docker run --rm --entrypoint sh geo-growth-engine:ci -c 'env' | grep -E 'CONSOLE_PASSWORD|AUTH_SECRET|LEAD_NOTIFY_WEBHOOK'; then
+            echo "::error::镜像运行环境里出现了密钥变量名（构建期注入的嫌疑）"
+            exit 1
+          fi
+          echo "镜像内未发现密钥变量"
+
+  backup-drill:
+    name: 备份与恢复演练
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: verify
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: 准备一个有数据的库
+        run: |
+          rm -rf /tmp/drill && mkdir -p /tmp/drill
+          DATABASE_PATH=/tmp/drill/geo.db node --experimental-strip-types scripts/seed.ts || true
+          ls -la /tmp/drill
+
+      - name: 备份
+        run: DATABASE_PATH=/tmp/drill/geo.db bash deploy/backup.sh /tmp/drill/backups
+
+      - name: 恢复演练
+        run: bash deploy/restore.sh --drill "$(ls -t /tmp/drill/backups/*.db | head -1)"
+
+      - name: 迁移在干净库上可重复执行（幂等）
+        run: |
+          for i in 1 2 3; do
+            DATABASE_PATH=/tmp/drill/migrate.db ALLOW_INSECURE_DEFAULTS=1 node scripts/migrate.ts
+          done
+
+      - name: 运行期校验在缺密钥时必须拒绝启动
+        run: |
+          if env -u CONSOLE_PASSWORD -u AUTH_SECRET \
+             APP_BASE_URL=https://ci.example.com CONTACT_EMAIL=ci@ci.example.com \
+             node scripts/preflight.ts runtime; then
+            echo "::error::缺密钥时运行期校验竟然通过了"
+            exit 1
+          fi
+          echo "缺密钥时正确拒绝启动"

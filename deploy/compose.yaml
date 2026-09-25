@@ -1,0 +1,84 @@
+# 单实例部署：一个应用容器 + 一个 Caddy 反向代理。
+#
+# 边界：
+#  - **只有 80/443 对外**。应用端口 3000 只在 compose 内部网络可见，
+#    由 Caddy 反代，不从宿主机暴露。
+#  - 数据库在命名卷上持久化。容器重建不丢数据。
+#  - 密钥全部由宿主机环境或 .env.production 提供，**不写进镜像**。
+#  - 迁移是独立的一次性服务，先于应用；迁移失败则应用不启动（depends_on 条件）。
+
+name: geo-growth-engine
+
+services:
+  # 一次性迁移。用 `docker compose run --rm migrate` 手动执行，
+  # 这样发布流程可以把「迁移」和「启动」分成两步，中间留出备份与检查的时间。
+  migrate:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+      args:
+        # 公开配置在构建期注入：会被固化进静态预渲染页面
+        APP_BASE_URL: ${APP_BASE_URL:?必须设置公开域名}
+        SITE_NAME: ${SITE_NAME:-GEO 可见度实验室}
+        CONTACT_EMAIL: ${CONTACT_EMAIL:?必须设置真实联系邮箱}
+    image: geo-growth-engine:local
+    env_file: [../.env.production]
+    environment:
+      RUN_MIGRATIONS_ON_START: "0"
+    volumes:
+      - geo-data:/data
+    entrypoint: ["node", "scripts/preflight.ts", "runtime"]
+    command: ["node", "scripts/migrate.ts"]
+    restart: "no"
+
+  app:
+    image: geo-growth-engine:local
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+      args:
+        APP_BASE_URL: ${APP_BASE_URL:?必须设置公开域名}
+        SITE_NAME: ${SITE_NAME:-GEO 可见度实验室}
+        CONTACT_EMAIL: ${CONTACT_EMAIL:?必须设置真实联系邮箱}
+    env_file: [../.env.production]
+    environment:
+      DATABASE_PATH: /data/geo.db
+      PORT: "3000"
+      # 公网环境**不得**启用这两个逃生口；留空即最严格策略
+      ALLOW_INSECURE_DEFAULTS: ""
+      EXTRA_TRUSTED_CIDRS: ""
+    volumes:
+      - geo-data:/data
+      # 备份输出目录，便于直接拷走做异地副本
+      - ./backups:/backups
+    # 不发布端口：只在内部网络可达，由 Caddy 转发
+    expose: ["3000"]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  caddy:
+    image: caddy:2-alpine
+    depends_on:
+      app:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    environment:
+      # 域名由 .env.production 提供，Caddyfile 里用 {$SITE_DOMAIN}
+      SITE_DOMAIN: ${SITE_DOMAIN:?必须设置域名}
+    restart: unless-stopped
+
+volumes:
+  geo-data:
+  caddy-data:
+  caddy-config:

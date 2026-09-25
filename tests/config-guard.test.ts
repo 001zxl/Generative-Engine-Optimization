@@ -134,3 +134,74 @@ test("示例口令：警告但不阻断（避免本地开发被卡住）", () =>
   assert.deepEqual(v.errors, []);
   assert.ok(v.warnings.some((w) => /示例值/.test(w)));
 });
+
+/* ------------------------------------------------------------------ *
+ * C1：构建期 / 运行期分离
+ *
+ * 为什么要分开：密钥一旦出现在构建环境，就会被写进镜像层 ——
+ * 任何拿到镜像的人都能从历史层里读出运营台口令。
+ * 反过来，会被固化进静态 HTML 的公开配置（SITE_NAME、CONTACT_EMAIL）
+ * 必须在构建期就拦住占位值，否则整批产物都得重做。
+ * ------------------------------------------------------------------ */
+
+const GOOD_PUBLIC = {
+  APP_BASE_URL: "https://geo.example.com",
+  SITE_NAME: "某站点",
+  CONTACT_EMAIL: "ops@geo.example.com",
+};
+const GOOD_SECRETS = {
+  CONSOLE_PASSWORD: "a-strong-passphrase",
+  AUTH_SECRET: "0123456789abcdef0123456789abcdef",
+  DATABASE_PATH: "/data/geo.db",
+};
+
+test("构建期：不要求任何密钥（密钥不该出现在构建环境）", () => {
+  const v = validateConfig({ ...GOOD_PUBLIC }, "build");
+  assert.equal(v.errors.length, 0, JSON.stringify(v.errors));
+});
+
+test("构建期：即使完全没有密钥也不报错", () => {
+  const v = validateConfig({ APP_BASE_URL: "https://geo.example.com", CONTACT_EMAIL: "o@e.com" }, "build");
+  assert.equal(v.errors.length, 0, JSON.stringify(v.errors));
+});
+
+test("构建期：占位公开配置必须被拦住", () => {
+  const v = validateConfig({ ...GOOD_PUBLIC, CONTACT_EMAIL: "hello@example.com" }, "build");
+  assert.ok(v.errors.some((e) => e.includes("占位邮箱")), JSON.stringify(v.errors));
+});
+
+test("构建期：本机 APP_BASE_URL 必须被拦住", () => {
+  const v = validateConfig({ ...GOOD_PUBLIC, APP_BASE_URL: "http://localhost:3100" }, "build");
+  assert.ok(v.errors.some((e) => e.includes("本机地址")), JSON.stringify(v.errors));
+});
+
+test("运行期：不重复校验公开配置", () => {
+  // 公开配置已在构建期查过；运行期只关心密钥与数据
+  const v = validateConfig({ ...GOOD_SECRETS, APP_BASE_URL: "http://localhost:3100", CONTACT_EMAIL: "hello@example.com" }, "runtime");
+  assert.equal(v.errors.length, 0, JSON.stringify(v.errors));
+});
+
+test("运行期：缺密钥必须拦住", () => {
+  const v = validateConfig({ DATABASE_PATH: "/data/geo.db" }, "runtime");
+  assert.ok(v.errors.some((e) => e.includes("CONSOLE_PASSWORD")));
+  assert.ok(v.errors.some((e) => e.includes("AUTH_SECRET")));
+});
+
+test("all：两个阶段的问题都要报出来", () => {
+  const v = validateConfig({ APP_BASE_URL: "http://localhost:1", CONTACT_EMAIL: "hello@example.com" }, "all");
+  assert.ok(v.errors.some((e) => e.includes("本机地址")));
+  assert.ok(v.errors.some((e) => e.includes("占位邮箱")));
+  assert.ok(v.errors.some((e) => e.includes("CONSOLE_PASSWORD")));
+});
+
+test("省略阶段参数时等价于 all（向后兼容）", () => {
+  const a = validateConfig({});
+  const b = validateConfig({}, "all");
+  assert.deepEqual(a.errors, b.errors);
+  assert.deepEqual(a.warnings, b.warnings);
+});
+
+test("构建期不产生密钥相关警告（避免在 CI 日志里提示去配密钥）", () => {
+  const v = validateConfig({ ...GOOD_PUBLIC }, "build");
+  assert.ok(!v.warnings.some((w) => w.includes("LEAD_NOTIFY_WEBHOOK")), JSON.stringify(v.warnings));
+});

@@ -1,0 +1,152 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
+
+/**
+ * 部署产物的回归检查。
+ *
+ * 这些断言都很"笨"（读文件、匹配字符串），但它们守住的是几条一旦破坏
+ * 就难以察觉的边界 —— 尤其是"密钥会进入镜像层"这类问题：
+ * 发生的时候看不出来，等发现时镜像可能已经在别处了。
+ *
+ * 不引入 YAML 解析依赖：只针对少量明确不变量做定向匹配。
+ */
+
+const root = path.join(import.meta.dirname, "..");
+const read = (rel: string) => fs.readFileSync(path.join(root, rel), "utf8");
+
+/* ---------------- .dockerignore ---------------- */
+
+test(".dockerignore 必须排除环境文件与数据库（否则密钥进镜像层）", () => {
+  const text = read(".dockerignore");
+  const lines = text.split("\n").map((l) => l.trim()).filter((l) => l && !l.startsWith("#"));
+
+  assert.ok(lines.includes(".env"), "必须排除 .env");
+  assert.ok(lines.includes(".env.*"), "必须排除 .env.*（覆盖 .env.production）");
+  assert.ok(lines.includes("!.env.example"), "应保留 .env.example 作为模板");
+  assert.ok(lines.some((l) => l === "data/" || l === "data"), "必须排除 data/");
+  assert.ok(lines.some((l) => l === "*.db"), "必须排除 *.db");
+  assert.ok(lines.some((l) => l === ".git" || l === ".git/"), "必须排除 .git");
+  assert.ok(lines.some((l) => l.startsWith("node_modules")), "应排除 node_modules");
+});
+
+test(".dockerignore 的排除顺序不会把环境文件重新包含进来", () => {
+  const lines = read(".dockerignore")
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l && !l.startsWith("#"));
+  // 任何 `!.env` 之后若紧跟 `.env*` 之类的再排除，语义容易出错 —— 只允许 !.env.example
+  const negations = lines.filter((l) => l.startsWith("!"));
+  assert.deepEqual(negations, ["!.env.example", "!README.md"]);
+});
+
+/* ---------------- Dockerfile ---------------- */
+
+test("Dockerfile 不得把密钥作为构建参数或环境变量", () => {
+  const text = read("deploy/Dockerfile");
+  for (const secret of ["CONSOLE_PASSWORD", "AUTH_SECRET", "LEAD_NOTIFY_WEBHOOK", "PERPLEXITY_API_KEY", "WORDPRESS_APP_PASSWORD"]) {
+    // 允许出现在注释里，但不允许出现在 ARG / ENV 指令中
+    const argOrEnv = new RegExp(`^\\s*(ARG|ENV)\\s+${secret}`, "m");
+    assert.ok(!argOrEnv.test(text), `${secret} 不得作为 ARG/ENV 出现在 Dockerfile 中`);
+  }
+});
+
+test("Dockerfile 只把公开配置作为构建参数", () => {
+  const text = read("deploy/Dockerfile");
+  const args = [...text.matchAll(/^\s*ARG\s+(\w+)/gm)].map((m) => m[1]).sort();
+  assert.deepEqual(args, ["APP_BASE_URL", "CONTACT_EMAIL", "SITE_NAME"]);
+});
+
+test("Dockerfile 以非 root 运行并声明数据卷挂载点", () => {
+  const text = read("deploy/Dockerfile");
+  assert.match(text, /^USER\s+app$/m, "必须有非 root 的 USER");
+  assert.match(text, /useradd|adduser/, "必须创建非 root 用户");
+  assert.match(text, /ENV\s+DATABASE_PATH=\/data\//, "DATABASE_PATH 应指向持久卷挂载点");
+  assert.match(text, /HEALTHCHECK/, "必须声明健康检查");
+});
+
+test("容器入口在启动前先跑运行期配置校验", () => {
+  const entry = read("deploy/entrypoint.sh");
+  const preflightIdx = entry.indexOf("preflight.ts runtime");
+  const startIdx = entry.indexOf("next start");
+  assert.ok(preflightIdx > 0, "入口必须执行运行期校验");
+  assert.ok(startIdx > preflightIdx, "校验必须在启动之前");
+  assert.match(entry, /set -e/, "必须 set -e，校验失败要中断");
+});
+
+/* ---------------- compose ---------------- */
+
+test("compose 不把应用端口暴露到宿主机（只经 Caddy 反代）", () => {
+  const text = read("deploy/compose.yaml");
+  const appBlock = text.slice(text.indexOf("  app:"), text.indexOf("  caddy:"));
+  assert.ok(!/^\s{4}ports:/m.test(appBlock), "app 服务不得直接发布端口");
+  assert.match(appBlock, /expose:\s*\["3000"\]/, "app 只应内部 expose 3000");
+
+  const caddyBlock = text.slice(text.indexOf("  caddy:"));
+  assert.match(caddyBlock, /"80:80"/);
+  assert.match(caddyBlock, /"443:443"/);
+});
+
+test("compose 在公网环境清空两个逃生口", () => {
+  const text = read("deploy/compose.yaml");
+  assert.match(text, /ALLOW_INSECURE_DEFAULTS:\s*""/, "公网不得启用 ALLOW_INSECURE_DEFAULTS");
+  assert.match(text, /EXTRA_TRUSTED_CIDRS:\s*""/, "公网不得启用 EXTRA_TRUSTED_CIDRS");
+});
+
+test("compose 把数据库放在命名卷上，并要求公开域名与联系邮箱", () => {
+  const text = read("deploy/compose.yaml");
+  assert.match(text, /geo-data:\/data/, "数据库必须挂持久卷");
+  assert.match(text, /APP_BASE_URL:\s*\$\{APP_BASE_URL:\?/, "APP_BASE_URL 必须显式提供");
+  assert.match(text, /CONTACT_EMAIL:\s*\$\{CONTACT_EMAIL:\?/, "CONTACT_EMAIL 必须显式提供");
+  assert.match(text, /SITE_DOMAIN:\s*\$\{SITE_DOMAIN:\?/, "SITE_DOMAIN 必须显式提供");
+});
+
+/* ---------------- 备份 / 恢复 ---------------- */
+
+test("备份用 VACUUM INTO 而不是文件复制（避免撕裂快照）", () => {
+  const text = read("deploy/backup.sh");
+  assert.match(text, /db-tool\.mjs"?\s+vacuum|vacuum/);
+  const tool = read("deploy/db-tool.mjs");
+  assert.match(tool, /VACUUM INTO/, "必须用 VACUUM INTO 生成一致性副本");
+  assert.ok(!/^\s*cp\s+.*\.db/m.test(text), "备份不得用 cp 直接复制数据库文件");
+});
+
+test("恢复脚本拒绝覆盖已存在的目标", () => {
+  const text = read("deploy/restore.sh");
+  assert.match(text, /目标已存在，拒绝覆盖/);
+  assert.match(text, /--drill/, "必须支持恢复演练模式");
+});
+
+test("备份脚本会验证副本可用，而不只是写完就算", () => {
+  const text = read("deploy/backup.sh");
+  assert.match(text, /db-tool\.mjs"?\s+verify|verify/);
+  const tool = read("deploy/db-tool.mjs");
+  assert.match(tool, /foreign_key_check/, "必须检查外键孤儿");
+  assert.match(tool, /integrity_check/, "必须检查完整性");
+});
+
+/* ---------------- CI ---------------- */
+
+test("CI 覆盖类型检查、单测、构建、镜像与备份演练", () => {
+  const ci = read(".github/workflows/ci.yml");
+  for (const needle of ["pnpm typecheck", "pnpm test", "pnpm build", "docker build", "deploy/backup.sh", "deploy/restore.sh"]) {
+    assert.ok(ci.includes(needle), `CI 缺少步骤：${needle}`);
+  }
+});
+
+test("CI 的端到端作业断言夹具库不是试点库", () => {
+  const ci = read(".github/workflows/ci.yml");
+  assert.ok(ci.includes('"pilot":false') || ci.includes("'pilot':false"), "必须断言 pilot:false");
+  assert.ok(ci.includes("EXTRA_TRUSTED_CIDRS=127.0.0.1/32"), "门槛检查需要显式逃生口");
+});
+
+test("部署文档说明了回滚与恢复演练", () => {
+  const doc = read("deploy/README.md");
+  for (const needle of ["回滚", "恢复演练", "迁移失败", "VPN"]) {
+    assert.ok(doc.includes(needle), `部署文档缺少：${needle}`);
+  }
+  // 文档要求把密钥放进 .env.production，该文件必须已被忽略
+  const gitignore = read(".gitignore");
+  assert.match(gitignore, /^\.env\.\*$/m, ".env.production 必须被 gitignore 覆盖");
+});

@@ -1,0 +1,44 @@
+# 构建上下文排除清单。
+#
+# 为什么必须有这个文件：Dockerfile 构建阶段用了 `COPY . .`。
+# 没有排除清单时，以下内容会全部进入构建上下文与镜像层：
+#   - .env / .env.production：含运营台口令与 AUTH_SECRET
+#   - data/：真实数据库（试点数据）
+#   - .git：完整历史，可能含曾经误提交的敏感文件
+#   - node_modules / .next：800MB+，且会被镜像内的安装步骤覆盖
+#
+# 一旦密钥进了镜像层，即使后续步骤删掉文件也仍可从历史层读出。
+
+# ---- 密钥与环境文件：绝不进入镜像 ----
+.env
+.env.*
+!.env.example
+
+# ---- 数据：绝不进入镜像 ----
+data/
+*.db
+*.db-wal
+*.db-shm
+deploy/backups/
+backups/
+
+# ---- 版本控制与本地产物 ----
+.git
+.gitignore
+.DS_Store
+screenshots/
+.local/
+
+# ---- 依赖与构建产物：镜像内重新安装/构建 ----
+node_modules
+.next
+tsconfig.tsbuildinfo
+next-env.d.ts
+
+# ---- 文档与开发工具：运行不需要 ----
+docs/
+*.md
+!README.md
+.github/
+.vscode/
+.idea/

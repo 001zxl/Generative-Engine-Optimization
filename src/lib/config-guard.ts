@@ -19,6 +19,19 @@ export interface ConfigEnv {
   CI?: string;
 }
 
+/**
+ * 校验阶段。
+ *
+ *  - `build`：只校验会被**固化进构建产物**的公开配置。
+ *    静态预渲染的页面（/methods、/tools/*）会在构建时读取 site 配置，
+ *    SITE_NAME / CONTACT_EMAIL 会直接写进 HTML。构建期必须能拦住占位值。
+ *    **此阶段不读、也不要求任何密钥** —— 密钥不能注入构建环境，
+ *    否则会被写进镜像层，任何拿到镜像的人都能读到。
+ *  - `runtime`：校验密钥与数据路径（CONSOLE_PASSWORD / AUTH_SECRET / DATABASE_PATH）。
+ *  - `all`：两者都查（本地 `pnpm start` 用这个）。
+ */
+export type ConfigPhase = "build" | "runtime" | "all";
+
 export interface ConfigVerdict {
   /** 会阻止启动的问题 */
   errors: string[];
@@ -58,22 +71,24 @@ export function isLocalUrl(value: string): boolean {
   return false;
 }
 
-export function validateConfig(env: ConfigEnv): ConfigVerdict {
+export function validateConfig(env: ConfigEnv, phase: ConfigPhase = "all"): ConfigVerdict {
   const errors: string[] = [];
   const warnings: string[] = [];
   const bypassed = env.ALLOW_INSECURE_DEFAULTS === "1";
+  const checkPublic = phase === "build" || phase === "all";
+  const checkSecrets = phase === "runtime" || phase === "all";
 
   const baseUrl = (env.APP_BASE_URL ?? "").trim();
   const contactEmail = (env.CONTACT_EMAIL ?? "").trim();
   const siteName = (env.SITE_NAME ?? "").trim();
 
   /* —— 1. APP_BASE_URL：canonical / OpenGraph / sitemap 全部由它派生 —— */
-  if (!baseUrl) {
+  if (checkPublic && !baseUrl) {
     errors.push(
       "APP_BASE_URL 未设置。canonical / OpenGraph / sitemap 都由它派生，" +
         "留空会让它们退回 http://localhost:3100。",
     );
-  } else {
+  } else if (checkPublic) {
     let parsed: URL | null = null;
     try {
       parsed = new URL(baseUrl);
@@ -97,7 +112,9 @@ export function validateConfig(env: ConfigEnv): ConfigVerdict {
   }
 
   /* —— 2. CONTACT_EMAIL：占位邮箱会让线索直接丢失 —— */
-  if (!contactEmail) {
+  if (!checkPublic) {
+    // 运行期不重复校验公开配置
+  } else if (!contactEmail) {
     errors.push("CONTACT_EMAIL 未设置 —— 页面上会没有可用的联系方式，客户咨询会丢失。");
   } else if (PLACEHOLDER_EMAILS.includes(contactEmail.toLowerCase())) {
     errors.push(
@@ -109,7 +126,9 @@ export function validateConfig(env: ConfigEnv): ConfigVerdict {
   }
 
   /* —— 3. 线索提醒通道：不阻断，但必须显式警告 —— */
-  if (bypassed) {
+  if (!checkSecrets) {
+    // 构建期不涉及通知通道
+  } else if (bypassed) {
     // 本地自测允许没有通知通道
   } else if (!(env.LEAD_NOTIFY_WEBHOOK ?? "").trim()) {
     warnings.push(
@@ -119,12 +138,14 @@ export function validateConfig(env: ConfigEnv): ConfigVerdict {
   }
 
   /* —— 4. SITE_NAME —— */
-  if (!siteName) warnings.push("SITE_NAME 未设置，将使用默认名称。");
+  if (checkPublic && !siteName) warnings.push("SITE_NAME 未设置，将使用默认名称。");
 
-  /* —— 4. 运营台鉴权：缺失等于没有门，必须阻止启动 —— */
+  /* —— 5. 运营台鉴权：缺失等于没有门，必须阻止启动 —— */
   const consolePassword = (env.CONSOLE_PASSWORD ?? "").trim();
   const authSecret = (env.AUTH_SECRET ?? "").trim();
-  if (!consolePassword) {
+  if (!checkSecrets) {
+    // 构建期刻意跳过：密钥不得进入构建环境
+  } else if (!consolePassword) {
     errors.push(
       "CONSOLE_PASSWORD 未设置。/console 含线索联系方式与品牌数据，缺失鉴权时系统会拒绝访问（fail closed）。",
     );
@@ -133,15 +154,17 @@ export function validateConfig(env: ConfigEnv): ConfigVerdict {
   } else if (/^(change-me|password|123456|admin)/i.test(consolePassword)) {
     warnings.push("CONSOLE_PASSWORD 看起来是示例值，生产环境请换成强口令。");
   }
-  if (!authSecret) {
+  if (!checkSecrets) {
+    // 同上
+  } else if (!authSecret) {
     errors.push("AUTH_SECRET 未设置。会话 Cookie 的签名密钥，缺失会导致无法登录。");
   } else if (authSecret.length < 16) {
     errors.push(`AUTH_SECRET 过短（${authSecret.length} 位），至少 16 位。建议 openssl rand -base64 32。`);
   }
 
-  /* —— 5. 数据库路径 —— */
+  /* —— 6. 数据库路径 —— */
   const dbPath = env.DATABASE_PATH ?? "./data/geo.db";
-  if (dbPath.trim() === "") errors.push("DATABASE_PATH 为空字符串。");
+  if (checkSecrets && dbPath.trim() === "") errors.push("DATABASE_PATH 为空字符串。");
 
   return { errors, warnings, bypassed };
 }

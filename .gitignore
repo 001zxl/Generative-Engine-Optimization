@@ -4,8 +4,13 @@ data/
 *.db
 *.db-wal
 *.db-shm
+# 环境变量文件一律不入库。
+# deploy/README.md 让人把运营台口令与 AUTH_SECRET 放进 .env.production，
+# 之前这里只忽略了 .env 与 .env.local —— .env.production 会被直接提交。
+# 用通配匹配所有变体，新增环境文件不必记得回来改这一行。
 .env
-.env.local
+.env.*
+!.env.example
 .DS_Store
 next-env.d.ts
 tsconfig.tsbuildinfo
@@ -15,4 +20,5 @@ screenshots/
 
 # 数据库备份（本地产物，不入库）
 backups/
+deploy/backups/
 .local/
