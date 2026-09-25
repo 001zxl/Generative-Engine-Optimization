@@ -22,6 +22,7 @@ import { observationSave, perplexityCollect } from "./actions";
 import { getApiAttempt, getSampleProvenance, perplexityConfigured } from "@/lib/sampling";
 import { listAnchors, listStores } from "@/lib/db/repo-local";
 import { LOCATION_MODES, DAYPARTS } from "@/lib/db/schema-local";
+import { listProtocols, describeProtocolRow } from "@/lib/db/repo-protocol";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -53,6 +54,7 @@ export default async function SamplingPage({
   const samples = selected ? R.listSamples(selected.id) : [];
   const stores = listStores();
   const anchors = listAnchors();
+  const protocols = listProtocols();
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-6">
@@ -136,6 +138,21 @@ export default async function SamplingPage({
             </Field>
           </div>
 
+          <Field
+            label="采样协议"
+            htmlFor="r-protocol"
+            hint="绑定协议后，该批次才参与前后对比；不绑定只能作为单次观察"
+          >
+            <select id="r-protocol" name="protocolId" className={SELECT_CLS} defaultValue="">
+              <option value="">（不绑定协议 —— 不参与前后对比）</option>
+              {protocols.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.label} · {describeProtocolRow(p)}
+                </option>
+              ))}
+            </select>
+          </Field>
+
           <fieldset className="grid gap-3 rounded-lg border border-dashed p-3 sm:grid-cols-2 lg:grid-cols-4">
             <legend className="px-1 text-xs font-medium text-muted-foreground">
               本地门店维度（品牌级采样全部留空）
@@ -184,6 +201,16 @@ export default async function SamplingPage({
               </select>
             </Field>
           </fieldset>
+
+          <label className="flex items-center gap-2 text-sm">
+            <Checkbox name="webSearch" />
+            <span>
+              本批次在联网检索模式下采集
+              <span className="ml-1 text-xs text-muted-foreground">
+                —— 联网与不联网是两个不同的系统，报告里会分开统计
+              </span>
+            </span>
+          </label>
 
           <Field label="目标引擎（可多选）">
             <div className="grid gap-2 sm:grid-cols-3">

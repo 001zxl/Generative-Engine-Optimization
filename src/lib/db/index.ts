@@ -7,6 +7,7 @@ import { PUBLISHING_SQL } from "./schema-publishing.ts";
 import { EXPERIMENTS_SQL } from "./schema-experiments.ts";
 import { LOCAL_SQL } from "./schema-local.ts";
 import { PUBLIC_SQL } from "./schema-public.ts";
+import { PROTOCOL_SQL } from "./schema-protocol.ts";
 import { runColumnMigrations } from "./migrate.ts";
 import { newId } from "../id.ts";
 
@@ -30,6 +31,7 @@ function open(): DatabaseSync {
   db.exec(EXPERIMENTS_SQL);
   db.exec(LOCAL_SQL);
   db.exec(PUBLIC_SQL);
+  db.exec(PROTOCOL_SQL);
 
   // 幂等补列：CREATE TABLE IF NOT EXISTS 不会给已存在的表加新列
   const mig = runColumnMigrations(db);

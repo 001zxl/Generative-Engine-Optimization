@@ -22,6 +22,7 @@ import {
   IconMapSearch,
   IconWorld,
   IconReportAnalytics,
+  IconClipboardList,
 } from "@tabler/icons-react";
 import {
   Sidebar,
@@ -57,6 +58,7 @@ const SECTIONS = [
       { href: "/console/evaluation", label: "5 · 评估与指标", icon: IconChartDots },
       { href: "/console/content", label: "6 · 内容与推广", icon: IconFileText },
       { href: "/console/publishing", label: "7 · 发布与复测", icon: IconSend },
+      { href: "/console/protocols", label: "9 · 采样协议", icon: IconClipboardList },
       { href: "/console/experiments", label: "8 · 基线与复测", icon: IconChartLine },
     ],
   },

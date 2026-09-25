@@ -18,6 +18,7 @@ import type { DatabaseSync } from "node:sqlite";
 import { LOCAL_COLUMN_MIGRATIONS } from "./schema-local.ts";
 import { PUBLISH_COLUMN_MIGRATIONS } from "./schema-publishing.ts";
 import { PUBLIC_COLUMN_MIGRATIONS } from "./schema-public.ts";
+import { PROTOCOL_COLUMN_MIGRATIONS } from "./schema-protocol.ts";
 
 export interface ColumnMigration {
   table: string;
@@ -55,6 +56,7 @@ export const COLUMN_MIGRATIONS: ColumnMigration[] = [
   ...LOCAL_COLUMN_MIGRATIONS.map((m) => ({ ...m })),
   ...PUBLISH_COLUMN_MIGRATIONS.map((m) => ({ ...m })),
   ...PUBLIC_COLUMN_MIGRATIONS.map((m) => ({ ...m })),
+  ...PROTOCOL_COLUMN_MIGRATIONS.map((m) => ({ ...m })),
 ];
 
 export interface MigrationOutcome {

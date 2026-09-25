@@ -1,6 +1,10 @@
 import Link from "next/link";
 import { IconHelpCircle, IconPlus, IconLock, IconUsers } from "@tabler/icons-react";
 import * as R from "@/lib/db/repo-domains";
+import { questionCategories } from "@/lib/db/repo-protocol";
+import { QUESTION_CATEGORIES, checkCategoryCoverage } from "@/lib/protocol";
+import { questionCategorySet } from "../protocol-actions";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { PageHead, SectionCard, Field, InlineForm, DangerForm, StatusPill } from "@/components/console-form";
 import { EmptyState } from "@/components/check-parts";
 import { Badge } from "@/components/ui/badge";
@@ -45,6 +49,8 @@ export default async function QuestionsPage({
   const questions = selected ? R.listQuestions(selected.id) : [];
   const personas = R.listPersonas();
   const frozen = selected?.status === "frozen";
+  // 分类覆盖检查：只查认知题会得出「提及率很高」的错觉
+  const coverage = checkCategoryCoverage(selected ? questionCategories(selected.id) : []);
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-6">
@@ -125,10 +131,34 @@ export default async function QuestionsPage({
           ) : (
             <div className="overflow-x-auto">
               <Table>
+                <div className="mb-3">
+                  <Alert
+                    className={
+                      coverage.ok ? "border-ok/25 bg-ok-soft" : "border-warn/25 bg-warn-soft"
+                    }
+                  >
+                    <AlertTitle className="text-sm">
+                      分类覆盖：{coverage.total} 条问题
+                      {coverage.ok ? "（三类齐全）" : `（${coverage.missing.length} 类缺失）`}
+                    </AlertTitle>
+                    <AlertDescription className="text-xs">
+                      {QUESTION_CATEGORIES.map((c) => `${c.label} ${coverage.counts[c.value]}`).join(" · ")}
+                      {coverage.notes.length > 0 && (
+                        <ul className="mt-1.5 space-y-0.5">
+                          {coverage.notes.map((n) => (
+                            <li key={n}>· {n}</li>
+                          ))}
+                        </ul>
+                      )}
+                    </AlertDescription>
+                  </Alert>
+                </div>
+
                 <TableHeader>
                   <TableRow>
                     <TableHead className="w-12">#</TableHead>
                     <TableHead>问题</TableHead>
+                    <TableHead className="w-52">分类</TableHead>
                     <TableHead className="w-20">意图</TableHead>
                     <TableHead className="w-24">漏斗阶段</TableHead>
                     <TableHead className="w-24">地区 / 语言</TableHead>
@@ -140,6 +170,27 @@ export default async function QuestionsPage({
                     <TableRow key={q.id}>
                       <TableCell className="text-xs text-muted-foreground">{i + 1}</TableCell>
                       <TableCell>{q.text}</TableCell>
+                      <TableCell>
+                        <form action={questionCategorySet} className="flex items-center gap-1">
+                          <input type="hidden" name="questionId" value={q.id} />
+                          <select
+                            name="category"
+                            defaultValue={q.category ?? ""}
+                            className="h-7 rounded-md border border-input bg-transparent px-2 text-xs"
+                            aria-label={`问题分类：${q.text.slice(0, 20)}`}
+                          >
+                            <option value="">未分类</option>
+                            {QUESTION_CATEGORIES.map((c) => (
+                              <option key={c.value} value={c.value}>
+                                {c.label}
+                              </option>
+                            ))}
+                          </select>
+                          <Button type="submit" size="sm" variant="outline" className="h-7 px-2 text-xs">
+                            保存
+                          </Button>
+                        </form>
+                      </TableCell>
                       <TableCell className="text-xs text-muted-foreground">{q.intent ?? "—"}</TableCell>
                       <TableCell className="text-xs text-muted-foreground">{q.funnel_stage ?? "—"}</TableCell>
                       <TableCell className="font-mono text-xs text-muted-foreground">{q.locale}</TableCell>

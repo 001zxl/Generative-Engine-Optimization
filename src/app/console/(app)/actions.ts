@@ -169,6 +169,8 @@ export async function samplingRunCreate(fd: FormData) {
     locationMode: s(fd, "locationMode") || "unspecified",
     anchorId: opt(fd, "anchorId") ?? null,
     daypart: opt(fd, "daypart") ?? null,
+    protocolId: opt(fd, "protocolId") ?? null,
+    webSearch: s(fd, "webSearch") === "on" || s(fd, "webSearch") === "1",
   });
   refresh(["/console/sampling"]);
 }

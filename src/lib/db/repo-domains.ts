@@ -242,6 +242,10 @@ export interface QuestionRow {
   funnel_stage: string | null;
   locale: string;
   status: string;
+  /** 三类问题之一；未分类时为 null，不参与分类统计 */
+  category: string | null;
+  store_id?: string | null;
+  geo_scenario_id?: string | null;
   created_at: string;
 }
 
@@ -581,6 +585,10 @@ export function createSamplingRun(input: {
   locationMode?: string;
   anchorId?: string | null;
   daypart?: string | null;
+  /** 所属采样协议。未绑定协议的批次不参与任何前后对比 */
+  protocolId?: string | null;
+  /** 是否在联网检索模式下采集；与不联网是两个不同的系统 */
+  webSearch?: boolean;
 }): {
   runId: string;
   tasks: number;
@@ -595,8 +603,9 @@ export function createSamplingRun(input: {
   const runId = newId("run_s");
   run(
     `INSERT INTO sampling_runs
-      (id, workspace_id, query_set_id, label, sampling_mode, status, store_id, location_mode, anchor_id, daypart, created_at)
-     VALUES (?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?)`,
+      (id, workspace_id, query_set_id, label, sampling_mode, status, store_id, location_mode, anchor_id, daypart,
+       protocol_id, web_search, created_at)
+     VALUES (?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?)`,
     runId,
     workspaceId(),
     input.querySetId,
@@ -608,6 +617,8 @@ export function createSamplingRun(input: {
     input.locationMode ?? "unspecified",
     input.anchorId ?? null,
     input.daypart ?? null,
+    input.protocolId ?? null,
+    input.webSearch ? 1 : 0,
     now(),
   );
 
@@ -675,8 +686,8 @@ export function saveSample(input: {
   );
   if (existing) return { sampleId: existing.id };
 
-  const runRow = one<{ sampling_mode: string; location_mode: string | null; anchor_id: string | null }>(
-    "SELECT sampling_mode, location_mode, anchor_id FROM sampling_runs WHERE id = ?",
+  const runRow = one<{ sampling_mode: string; location_mode: string | null; anchor_id: string | null; web_search: number | null }>(
+    "SELECT sampling_mode, location_mode, anchor_id, web_search FROM sampling_runs WHERE id = ?",
     task.run_id,
   );
   const sampleId = newId("smp");
@@ -684,8 +695,9 @@ export function saveSample(input: {
   run(
     `INSERT INTO response_samples
       (id, workspace_id, run_id, question_id, engine, sampling_mode, region, repetition, raw_answer,
-       content_hash, collected_at, created_at, location_mode, anchor_id, share_url, screenshot_path)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?)`,
+       content_hash, collected_at, created_at, location_mode, anchor_id, share_url, screenshot_path,
+       web_search, model_version)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?)`,
     sampleId,
     workspaceId(),
     task.run_id,
@@ -702,6 +714,9 @@ export function saveSample(input: {
     runRow?.anchor_id ?? null,
     input.shareUrl ?? null,
     input.screenshotPath ?? null,
+    // 联网标记随批次冻结，不能事后改
+    runRow?.web_search ?? 0,
+    input.modelVersion ?? null,
   );
   if (input.modelVersion) {
     run("UPDATE response_samples SET content_hash = ? WHERE id = ?", `mv:${input.modelVersion}`, sampleId);
