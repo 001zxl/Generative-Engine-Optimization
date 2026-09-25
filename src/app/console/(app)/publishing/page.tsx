@@ -5,14 +5,15 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { listAssets } from "@/lib/db/repo-domains";
-import { listPublicationDispatches, listPublicationChecks, publishingChannelStatus, type PublishSnapshot } from "@/lib/publishing";
+import { listPublicationDispatches, listPublicationChecks, publicationStatusFor, publishingChannelStatus, GATE_CONSEQUENCE, type PublishGateId, type PublishSnapshot } from "@/lib/publishing";
+import { STATE_STYLE } from "@/lib/publication-status";
 import { queuePublication, executePublication, reconcilePublication, resetPublication, recheckPublication } from "./actions";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const metadata = { title: "发布执行与复测", robots: { index: false, follow: false } };
 
-interface PublishGateView { id: string; label: string; ok: boolean; detail: string }
+interface PublishGateView { id: string; label: string; ok: boolean; state?: string; detail: string }
 
 /** gates_json 结构由本仓库写入；解析失败按「无门槛结果」处理，不伪造通过。 */
 function parsedGates(raw: string | null | undefined): PublishGateView[] {
@@ -53,6 +54,7 @@ export default async function PublishingPage({ searchParams }: { searchParams: P
         <div className="flex flex-col gap-4">{jobs.map((job) => {
           const snapshot = JSON.parse(job.snapshot_json) as PublishSnapshot;
           const check = checks.find((c) => c.publication_id === job.publication_id);
+          const status = publicationStatusFor(job.id);
           const channel = channels.find((c) => c.id === job.channel)!;
           const unknown = ["sending", "uncertain"].includes(job.status);
           return <div className="rounded-lg border p-4" key={job.id}>
@@ -65,15 +67,49 @@ export default async function PublishingPage({ searchParams }: { searchParams: P
               {["pending", "failed"].includes(job.status) && <form action={executePublication}><input type="hidden" name="id" value={job.id} /><Button type="submit" size="sm" disabled={!channel.configured}>{job.status === "failed" ? "修正后重试" : `执行发布到${channel.name}`}</Button></form>}
               {job.status === "succeeded" && <form action={recheckPublication}><input type="hidden" name="id" value={job.id} /><Button size="sm" variant="outline" type="submit">复测已发布 URL</Button></form>}
             </div>
-            {check && <div className="mt-3">
-              <p className={`text-xs ${check.ok ? "text-ok" : "text-fail"}`}>最近复测：{check.note}（{check.checked_at.slice(0, 16).replace("T", " ")} UTC）</p>
-              {parsedGates(check.gates_json).length > 0 && <ul className="mt-2 space-y-1">
-                {parsedGates(check.gates_json).map((g) => <li key={g.id} className="flex items-start gap-2 text-xs">
-                  <span className={g.ok ? "text-ok" : "text-fail"}>{g.ok ? "通过" : "未通过"}</span>
-                  <span className="font-medium">{g.label}</span>
-                  <span className="text-muted-foreground">{g.detail}</span>
-                </li>)}
-              </ul>}
+            {check && <div className="mt-4 rounded-lg border p-3">
+              <p className="text-xs text-muted-foreground">最近复测：{check.note}（{check.checked_at.slice(0, 16).replace("T", " ")} UTC）</p>
+
+              {/* 四项状态分开显示：不把"已发布"当成"已被引用" */}
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                {[status.published, status.crawlable, status.indexed, status.citedByAi].map((line) => (
+                  <div key={line.label} className="rounded-md border p-2">
+                    <div className="flex items-center gap-2">
+                      <span className={`rounded border px-1.5 py-0.5 text-xs ${STATE_STYLE[line.state].className}`}>
+                        {STATE_STYLE[line.state].label}
+                      </span>
+                      <span className="text-xs font-medium">{line.label}</span>
+                    </div>
+                    <p className="mt-1 text-xs text-muted-foreground">{line.evidence}</p>
+                  </div>
+                ))}
+              </div>
+              {status.hasUnknown && (
+                <p className="mt-2 text-xs text-warn">
+                  带「未知」的项我们无权替你断言 —— 尤其「已收录」需要搜索引擎后台数据，本站无法自行确认。
+                </p>
+              )}
+
+              {/* 六项门槛逐项列出 */}
+              {parsedGates(check.gates_json).length > 0 && (
+                <div className="mt-3 border-t pt-3">
+                  <p className="mb-1.5 text-xs font-medium">发布后逐项门槛</p>
+                  <ul className="space-y-1">
+                    {parsedGates(check.gates_json).map((g) => (
+                      <li key={g.id} className="flex flex-wrap items-baseline gap-2 text-xs">
+                        <span className={g.ok ? "text-ok" : g.state === "not_checked" ? "text-warn" : "text-fail"}>
+                          {g.ok ? "通过" : g.state === "not_checked" ? "未检查" : "未通过"}
+                        </span>
+                        <span className="font-medium">{g.label}</span>
+                        <span className="text-muted-foreground">{g.detail}</span>
+                        {!g.ok && g.state !== "not_checked" && GATE_CONSEQUENCE[g.id as PublishGateId] && (
+                          <span className="text-fail">→ 后果：{GATE_CONSEQUENCE[g.id as PublishGateId]}</span>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </div>}
             {unknown && <div className="mt-4 space-y-4 border-t pt-4">
               <p className="text-sm text-muted-foreground">请到目标平台查找标题“{snapshot.title}”。若已发布，核对正文后补回链接；若确认没有发布，可恢复待执行状态。请求仍执行时请等待至少一分钟。</p>

@@ -134,3 +134,45 @@ Allow: /
     assert.equal(isAllowed(p, token, "/article").allowed, true, `${token} 应被放行`);
   }
 });
+
+/* ------------------------------------------------------------------ *
+ * 站点 robots 配置回归（src/lib/robots-config.ts）
+ *
+ * 背景：robots.txt 的具名 user-agent 组会**覆盖** `*` 组而不是与之合并。
+ * 曾经给检索型爬虫单独写了一个 `Allow: /` 组，结果 /console、/api/、/r/
+ * 对 Googlebot、OAI-SearchBot 等实际是放开的。这组用例守住这件事。
+ * ------------------------------------------------------------------ */
+
+test("站点 robots：每个组（含具名爬虫组）都必须禁止运营台/API/结果页", async () => {
+  const cfg = await import("../src/lib/robots-config.ts");
+  const parsed = parseRobots(cfg.renderRobotsText());
+
+  const protectedPaths = ["/console", "/console/leads", "/console/public-pages", "/api/leads", "/r/abc123"];
+  for (const agent of cfg.allRobotsAgents()) {
+    for (const path of protectedPaths) {
+      const verdict = isAllowed(parsed, agent, path);
+      assert.equal(verdict.allowed, false, `${agent} 不应被允许抓取 ${path}：${verdict.reason}`);
+    }
+  }
+});
+
+test("站点 robots：公开页面仍对所有爬虫放行（不能因为收紧而误伤获客页）", async () => {
+  const cfg = await import("../src/lib/robots-config.ts");
+  const parsed = parseRobots(cfg.renderRobotsText());
+  const publicPaths = ["/", "/tools/ai-crawler-check", "/methods", "/knowledge/some-article", "/stores/x", "/brands/y"];
+  for (const agent of ["*", "Googlebot", "OAI-SearchBot", "GPTBot"]) {
+    for (const path of publicPaths) {
+      assert.equal(isAllowed(parsed, agent, path).allowed, true, `${agent} 应能抓取 ${path}`);
+    }
+  }
+});
+
+test("站点 robots：三组规则的放行/禁止范围必须完全一致", async () => {
+  const cfg = await import("../src/lib/robots-config.ts");
+  const rules = cfg.robotsRules();
+  assert.equal(rules.length, 3);
+  for (const rule of rules) {
+    assert.deepEqual([...rule.allow].sort(), [...cfg.ALLOWED_PATHS].sort());
+    assert.deepEqual([...rule.disallow].sort(), [...cfg.DISALLOWED_PATHS].sort());
+  }
+});

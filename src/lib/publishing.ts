@@ -4,6 +4,7 @@ import { fetchPage } from "./net/fetch-page.ts";
 import { parseRobots, isAllowed, declaredSitemaps } from "./net/robots.ts";
 import { CRITICAL_BOTS } from "./checks/bots.ts";
 import { markdownToHtml, markdownToPlainText } from "./markdown.ts";
+import { buildPublicationStatus, type CitationEvidence, type PublicationStatusView } from "./publication-status.ts";
 import { articleJsonLd as articleJsonLdFrom, serializeJsonLd } from "./jsonld.ts";
 
 export const PUBLISH_CHANNELS = [
@@ -301,7 +302,7 @@ export async function checkPublicationDispatch(id: string): Promise<{ ok: boolea
   if (dispatch.status !== "succeeded" || !dispatch.publication_id || !dispatch.published_url) throw new Error("只能复测已发布的内容");
   let ok = false, status: number | null = null, note: string;
   const hostname = new URL(dispatch.published_url).hostname;
-  if (dispatch.channel === "own_site" && ["localhost", "127.0.0.1", "[::1]"].includes(hostname)) {
+  if (dispatch.channel === "own_site" && isLoopbackHost(hostname)) {
     ok = !!getPublishedKnowledge(dispatch.slug);
     note = ok ? "本机内容快照可读取；未执行公网抓取，不能据此判断搜索引擎收录" : "本站知识页已不可见";
   } else {
@@ -321,13 +322,16 @@ export async function checkPublicationDispatch(id: string): Promise<{ ok: boolea
     const readiness = await checkPublishReadiness(dispatch.published_url);
     gates = readiness.gates;
     gatesJson = JSON.stringify(gates);
-    // 与旧口径保持一致：只在页面这一项不过时把整体判为未通过
-    if (!gates.find((g) => g.id === "page")?.ok) ok = false;
+    // 用 reachable 判定"抓到没"：HTTP + 正文可读 + 未被 robots 拦截。
+    // reachable 为 null 表示"未检查"（例如本机地址被 SSRF 防护拒绝），
+    // 这时保持原有判定，不因为"我们没查"就把任务标成失败。
+    if (readiness.reachable === false) ok = false;
   } catch {
     gates = [
-      { id: "page", label: "页面可公开抓取", ok: false, detail: "门槛检查未能完成（网络或解析错误）" },
+      { id: "http", label: "HTTP 可访问", ok: false, state: "fail", detail: "门槛检查未能完成（网络或解析错误）" },
     ];
     gatesJson = JSON.stringify(gates);
+    ok = false;
   }
 
   getDb().prepare("INSERT INTO publication_checks (id, publication_id, status_code, ok, note, checked_at, gates_json) VALUES (?, ?, ?, ?, ?, ?, ?)")
@@ -353,16 +357,58 @@ export function listPublicationChecks(): Array<{ id: string; publication_id: str
  * 「页面 200」不等于「AI 能看见」，中间还隔着 robots.txt 和 sitemap。
  * ------------------------------------------------------------------ */
 
+/**
+ * 发布后逐项门槛。
+ *
+ * 方案要求分开记录 HTTP、正文可读、canonical、robots、sitemap、结构化数据 ——
+ * 合并成一句「页面正常」会掩盖「页面 200 但没有 canonical」这类问题，
+ * 而后者直接影响能不能被正确收录。
+ */
+export type PublishGateId = "http" | "readable" | "canonical" | "robots" | "sitemap" | "structuredData";
+
+/**
+ * 门槛状态。
+ *
+ * 必须有第三态：SSRF 防护会拒绝抓取本机/内网地址，这时"我们没查"不等于
+ * "页面有问题"。把它算成未通过是假阴性 —— 本地开发会永远是红的，
+ * 久而久之没人再看这个检查。
+ */
+export type PublishGateState = "pass" | "fail" | "not_checked";
+
 export interface PublishGate {
-  id: "page" | "robots" | "sitemap";
+  id: PublishGateId;
   label: string;
   ok: boolean;
+  state: PublishGateState;
   detail: string;
 }
 
+/** 各门槛不通过时，这句话说明后果 —— 不能只说"失败"，要说清"会导致什么" */
+export const GATE_CONSEQUENCE: Record<PublishGateId, string> = {
+  http: "抓取方拿不到页面",
+  readable: "抓到的是空壳，正文无法被引用",
+  canonical: "同一内容可能被当成多个页面，权重分散",
+  robots: "被拦的抓取方完全看不到这页",
+  sitemap: "搜索引擎可能发现不了这页",
+  structuredData: "抓取方难以确认页面主题与实体",
+};
+
 export interface PublishReadiness {
   url: string;
+  /** 全部门槛通过 —— 严格口径，"发布可用"的判据 */
   ok: boolean;
+  /**
+   * 抓取方确实能拿到并读到内容：HTTP + 正文可读 + 未被 robots 拦截。
+   *
+   * 与 ok 分开：sitemap 未收录、canonical 缺失、没有结构化数据，
+   * 都不影响"能不能抓到"，但必须在界面上单独显示为未通过。
+   * null = 未检查（例如本机地址被 SSRF 防护拒绝抓取）。
+   */
+  reachable: boolean | null;
+  /** 搜索引擎可发现（站点地图已收录）。null = 未检查 */
+  discoverable: boolean | null;
+  /** 标记规范（canonical 指向本页且有结构化数据）。null = 未检查 */
+  wellFormed: boolean | null;
   gates: PublishGate[];
   checkedAt: string;
 }
@@ -385,6 +431,14 @@ const defaultGateFetcher: PublishGateFetcher = async (url) => {
  * robots 门槛只对 CRITICAL_BOTS（有厂商一手证据的 AI 抓取方）判定：
  * 一个冷门爬虫被挡不构成阻断，但把 GPTBot / Bytespider 挡住就是实质阻断。
  */
+/** 本机/环回地址：SSRF 防护默认拒绝抓取，因此无法验证公网可抓取性 */
+export const LOOPBACK_HOSTS = ["localhost", "127.0.0.1", "[::1]", "::1", "0.0.0.0"];
+
+export function isLoopbackHost(hostname: string): boolean {
+  const h = hostname.toLowerCase();
+  return LOOPBACK_HOSTS.includes(h) || h.endsWith(".localhost");
+}
+
 export async function checkPublishReadiness(rawUrl: string, fetcher: PublishGateFetcher = defaultGateFetcher): Promise<PublishReadiness> {
   const checkedAt = timestamp();
   const gates: PublishGate[] = [];
@@ -402,20 +456,90 @@ export async function checkPublishReadiness(rawUrl: string, fetcher: PublishGate
     }
   };
 
-  // —— 门槛 1：页面本身可抓取 ——
+  // —— 门槛 1：HTTP ——
   const page = await safeFetch(rawUrl);
-  const visible = (page.body ?? "").replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
-  const pageOk = page.ok && visible.length > 200;
+
+  /**
+   * 被 SSRF 防护拒绝 ≠ 页面有问题。
+   *
+   * 这里刻意"先抓再分类"，而不是事先按主机名短路：逃生口
+   * （EXTRA_TRUSTED_CIDRS）允许在本地显式放行时，短路会让本地永远
+   * 无法验证真实门槛。分类依据是抓取器给出的拒绝原因。
+   */
+  const ssrfBlocked =
+    !page.ok &&
+    !!page.error &&
+    /不允许访问本机地址|不允许访问内网地址|该域名解析到内网地址/.test(page.error);
+  if (ssrfBlocked) {
+    const reason =
+      `${page.error}（SSRF 防护拒绝抓取本机/内网地址）—— 无法据此验证公网可抓取性。` +
+      "如需在本地验证，可在确认目标确实是自己的测试实例后，用 EXTRA_TRUSTED_CIDRS 显式放行。";
+    const notChecked = (id: PublishGateId, label: string): PublishGate => ({
+      id,
+      label,
+      ok: false,
+      state: "not_checked",
+      detail: reason,
+    });
+    gates.push(
+      notChecked("http", "HTTP 可访问"),
+      notChecked("readable", "正文可读"),
+      notChecked("canonical", "canonical 指向本页"),
+      notChecked("robots", "robots.txt 未拦截 AI 抓取方"),
+      notChecked("sitemap", "站点地图已收录该 URL"),
+      notChecked("structuredData", "含可解析的结构化数据"),
+    );
+    return { url: rawUrl, ok: false, reachable: null, discoverable: null, wellFormed: null, gates, checkedAt };
+  }
+
+  const httpOk = page.ok && page.status !== null && page.status >= 200 && page.status < 300;
   gates.push({
-    id: "page",
-    label: "页面可公开抓取",
-    ok: pageOk,
-    detail: pageOk
-      ? `HTTP ${page.status}，正文约 ${visible.length} 字`
-      : page.error || `HTTP ${page.status ?? "无响应"}，正文仅 ${visible.length} 字（疑似登录墙/空白页/纯前端渲染）`,
+    id: "http",
+    label: "HTTP 可访问",
+    ok: httpOk,
+    state: httpOk ? "pass" : "fail",
+    detail: httpOk
+      ? `HTTP ${page.status}`
+      : page.error || `HTTP ${page.status ?? "无响应"} —— 抓取方拿不到页面`,
   });
 
-  // —— 门槛 2：robots.txt 未挡住 AI 抓取方 ——
+  // —— 门槛 2：正文可读（与 HTTP 分开：200 也可能是空壳）——
+  const html = page.body ?? "";
+  const visible = html.replace(/<script[\s\S]*?<\/script>/g, " ").replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+  const readableOk = visible.length > 200;
+  gates.push({
+    id: "readable",
+    label: "正文可读",
+    ok: readableOk,
+    state: readableOk ? "pass" : "fail",
+    detail: readableOk
+      ? `正文约 ${visible.length} 字`
+      : `正文仅 ${visible.length} 字（疑似登录墙、纯前端渲染或空壳页）`,
+  });
+
+  // —— 门槛 3：canonical ——
+  // 相对与绝对都接受，但必须指向本页：指向别处等于把权重让出去
+  const canonicalRaw = /<link[^>]+rel=["']canonical["'][^>]*>/i.exec(html)?.[0] ?? "";
+  const canonicalHref = /href=["']([^"']+)["']/i.exec(canonicalRaw)?.[1] ?? null;
+  let canonicalOk = false;
+  let canonicalDetail: string;
+  if (!canonicalHref) {
+    canonicalDetail = "页面未声明 canonical —— 同一内容可能被当成多个页面";
+  } else {
+    try {
+      const resolved = new URL(canonicalHref, rawUrl);
+      const same = resolved.origin === parsed.origin && resolved.pathname === parsed.pathname;
+      canonicalOk = same;
+      canonicalDetail = same
+        ? `canonical 指向本页：${resolved.pathname}`
+        : `canonical 指向 ${resolved.href}，不是本页 —— 权重会被让给别的地址`;
+    } catch {
+      canonicalDetail = `canonical 值无法解析：${canonicalHref}`;
+    }
+  }
+  gates.push({ id: "canonical", label: "canonical 指向本页", ok: canonicalOk, state: canonicalOk ? "pass" : "fail", detail: canonicalDetail });
+
+  // —— 门槛 4：robots.txt 未挡住 AI 抓取方 ——
   const robots = await safeFetch(`${origin}/robots.txt`);
   if (!robots.ok || !robots.body) {
     // 没有 robots.txt 等于默认全放行，不是失败
@@ -423,6 +547,7 @@ export async function checkPublishReadiness(rawUrl: string, fetcher: PublishGate
       id: "robots",
       label: "robots.txt 未拦截 AI 抓取方",
       ok: true,
+      state: "pass",
       detail: `未读到 robots.txt（HTTP ${robots.status ?? "无响应"}）。缺失按全放行处理。`,
     });
   } else {
@@ -432,25 +557,150 @@ export async function checkPublishReadiness(rawUrl: string, fetcher: PublishGate
       id: "robots",
       label: "robots.txt 未拦截 AI 抓取方",
       ok: blocked.length === 0,
+      state: blocked.length === 0 ? "pass" : "fail",
       detail: blocked.length === 0
         ? `已核对 ${CRITICAL_BOTS.length} 个关键 AI 抓取方，${path} 全部放行`
         : `被拦截：${blocked.map((b) => b.token).join("、")} —— 这些抓取方看不到本页`,
     });
   }
 
-  // —— 门槛 3：站点地图包含该 URL ——
+  // —— 门槛 5：站点地图包含该 URL ——
   const sitemaps = robots.ok && robots.body ? declaredSitemaps(parseRobots(robots.body)) : [];
   const candidates = sitemaps.length > 0 ? sitemaps : [`${origin}/sitemap.xml`];
   const docs = await Promise.all(candidates.slice(0, 3).map((sm) => safeFetch(sm)));
-  const hits = docs.filter((d) => d.ok && d.body && (d.body.includes(rawUrl) || d.body.includes(path)));
+  const hitIndex = docs.findIndex((d) => d.ok && d.body && (d.body.includes(rawUrl) || d.body.includes(path)));
   gates.push({
     id: "sitemap",
     label: "站点地图已收录该 URL",
-    ok: hits.length > 0,
-    detail: hits.length > 0
-      ? `在 ${candidates[docs.findIndex((d) => d === hits[0])]} 中找到该 URL`
+    ok: hitIndex >= 0,
+    state: hitIndex >= 0 ? "pass" : "fail",
+    detail: hitIndex >= 0
+      ? `在 ${candidates[hitIndex]} 中找到该 URL`
       : `已检查 ${candidates.slice(0, 3).join("、")}，均未包含该 URL —— 搜索引擎可能发现不了这页`,
   });
 
-  return { url: rawUrl, ok: gates.every((g) => g.ok), gates, checkedAt };
+  // —— 门槛 6：结构化数据 ——
+  // 只判断"有没有可解析的 JSON-LD 且带 @type"。字段是否与页面一致由 A3 的
+  // checkJsonLdConsistency 负责，这里不重复也不越权。
+  const ldBlocks = [...html.matchAll(/<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)].map((m) => m[1]);
+  let ldTypes: string[] = [];
+  let ldBroken = 0;
+  for (const block of ldBlocks) {
+    try {
+      const data = JSON.parse(block.replace(/\\u003c/g, "<")) as unknown;
+      const list = Array.isArray(data) ? data : [data];
+      for (const item of list) {
+        const t = (item as Record<string, unknown> | null)?.["@type"];
+        if (typeof t === "string") ldTypes.push(t);
+        else if (Array.isArray(t)) ldTypes.push(...t.filter((x): x is string => typeof x === "string"));
+      }
+    } catch {
+      ldBroken++;
+    }
+  }
+  gates.push({
+    id: "structuredData",
+    label: "含可解析的结构化数据",
+    ok: ldTypes.length > 0,
+    state: ldTypes.length > 0 ? "pass" : "fail",
+    detail:
+      ldTypes.length > 0
+        ? `JSON-LD 类型：${[...new Set(ldTypes)].join("、")}${ldBroken > 0 ? `（另有 ${ldBroken} 段无法解析）` : ""}`
+        : ldBlocks.length > 0
+          ? `有 ${ldBlocks.length} 段 JSON-LD 但都无法解析出 @type`
+          : "页面没有 JSON-LD —— 抓取方难以确认页面主题与实体",
+  });
+
+  const stateOf = (id: PublishGateId) => gates.find((g) => g.id === id)?.state;
+  /** 任一项未检查 → 整组未知（null），不把"没查"算成"通过"或"不通过" */
+  const rollup = (ids: PublishGateId[]): boolean | null => {
+    const states = ids.map(stateOf);
+    if (states.some((x) => x === "not_checked" || x === undefined)) return null;
+    return states.every((x) => x === "pass");
+  };
+  return {
+    url: rawUrl,
+    ok: gates.every((g) => g.ok),
+    reachable: rollup(["http", "readable", "robots"]),
+    discoverable: rollup(["sitemap"]),
+    wellFormed: rollup(["canonical", "structuredData"]),
+    gates,
+    checkedAt,
+  };
+}
+
+
+/* ------------------------------------------------------------------ *
+ * 四项状态分开呈现（已发布 / 可抓取 / 已收录 / 被 AI 引用）
+ * ------------------------------------------------------------------ */
+
+/**
+ * 收集采样得到的引用证据。
+ *
+ * 只读 evaluation_results（evaluator='citations'），不重算 ——
+ * 状态必须复现评测当时的结论，否则"被引用"这件事前后口径会变。
+ */
+export function citationEvidence(): { citations: CitationEvidence[]; evaluatedSampleCount: number } {
+  const db = getDb();
+  const rows = db
+    .prepare(
+      `SELECT e.result_json FROM evaluation_results e
+        JOIN response_samples s ON s.id = e.sample_id
+       WHERE e.workspace_id = ? AND e.evaluator = 'citations'`,
+    )
+    .all(workspaceId()) as unknown as Array<{ result_json: string }>;
+  const citations: CitationEvidence[] = [];
+  for (const row of rows) {
+    try {
+      const parsed = JSON.parse(row.result_json) as Array<{ url?: unknown; domain?: unknown }>;
+      if (!Array.isArray(parsed)) continue;
+      for (const c of parsed) {
+        citations.push({
+          url: typeof c?.url === "string" ? c.url : null,
+          domain: typeof c?.domain === "string" ? c.domain : null,
+        });
+      }
+    } catch {
+      // 坏 JSON 跳过：宁可少算，也不能把解析失败当成"有引用"
+    }
+  }
+  const count = (db
+    .prepare("SELECT COUNT(*) AS n FROM response_samples WHERE workspace_id = ? AND id IN (SELECT sample_id FROM evaluation_results WHERE workspace_id = ?)")
+    .get(workspaceId(), workspaceId()) as { n: number } | undefined)?.n ?? 0;
+  return { citations, evaluatedSampleCount: count };
+}
+
+function latestCheckFor(publicationId: string | null): { gates: PublishGate[]; ok: boolean; checkedAt: string } | null {
+  if (!publicationId) return null;
+  const row = getDb()
+    .prepare("SELECT gates_json, ok, checked_at FROM publication_checks WHERE publication_id = ? ORDER BY checked_at DESC LIMIT 1")
+    .get(publicationId) as { gates_json: string; ok: number; checked_at: string } | undefined;
+  if (!row) return null;
+  let gates: PublishGate[] = [];
+  try {
+    const parsed = JSON.parse(row.gates_json) as PublishGate[];
+    if (Array.isArray(parsed)) gates = parsed.filter((g) => g && typeof g.id === "string");
+  } catch {
+    gates = [];
+  }
+  return { gates, ok: row.ok === 1, checkedAt: row.checked_at };
+}
+
+/** 计算一个发布任务的四项状态。任何一步都不由前一步推断。 */
+export function publicationStatusFor(dispatchId: string): PublicationStatusView {
+  const dispatch = getDispatch(dispatchId);
+  const check = latestCheckFor(dispatch.publication_id);
+  const { citations, evaluatedSampleCount } = citationEvidence();
+  const gateOk = (id: string) => check?.gates.find((g) => g.id === id)?.ok === true;
+  const reachable = check ? gateOk("http") && gateOk("readable") && gateOk("robots") : null;
+  return buildPublicationStatus({
+    url: dispatch.published_url,
+    publishedAt: dispatch.status === "succeeded" ? dispatch.updated_at : null,
+    channel: dispatch.channel,
+    gates: check?.gates ?? [],
+    reachable,
+    checkedAt: check?.checkedAt ?? null,
+    citations,
+    evaluatedSampleCount,
+  });
 }
