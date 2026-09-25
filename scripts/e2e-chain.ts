@@ -154,7 +154,32 @@ check("产出提及率", !!byMetric.mention_rate, byMetric.mention_rate && `${by
 check("产出首推率", !!byMetric.top1_rate, byMetric.top1_rate && `${byMetric.top1_rate.numerator}/${byMetric.top1_rate.denominator}`);
 check("产出 Share of Voice", !!byMetric.sov, byMetric.sov && `${byMetric.sov.numerator}/${byMetric.sov.denominator}`);
 check("产出自有域引用率", !!byMetric.owned_citation_rate, byMetric.owned_citation_rate && `${byMetric.owned_citation_rate.numerator}/${byMetric.owned_citation_rate.denominator}`);
-check("指标快照已落库", R.listMetricSnapshots(created.runId).length === credited.metrics.length);
+// B3 之后每个类目会各存一份快照（另加竞品指标），所以条数必然多于总体指标数。
+// 这里要断言的是「总体指标一条不少」，而不是恰好相等。
+const runSnapshots = R.listMetricSnapshots(created.runId);
+const overallSnaps = runSnapshots.filter((snap) => {
+  try {
+    return !(JSON.parse(snap.dimension_json) as { category?: string }).category;
+  } catch {
+    return true;
+  }
+});
+check(
+  "总体指标快照一条不少",
+  credited.metrics.every((m) => overallSnaps.some((snap) => snap.metric === m.metric)),
+  `${overallSnaps.length} 条总体快照 / 共 ${runSnapshots.length} 条`,
+);
+check(
+  "按类目另存了快照（跨协议/跨类目不混算）",
+  runSnapshots.some((snap) => {
+    try {
+      return Boolean((JSON.parse(snap.dimension_json) as { category?: string }).category);
+    } catch {
+      return false;
+    }
+  }),
+  "存在带 category 维度的快照",
+);
 check("冲突样本进入人工复核队列", R.countPendingReviews() > 0, `待复核 ${R.countPendingReviews()}`);
 
 /* —— P0 回归：跨批次范围（runId = null）不得写入不存在的 run_id —— */
