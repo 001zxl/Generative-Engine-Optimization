@@ -219,6 +219,7 @@ export async function assetCreate(fd: FormData) {
     kind: opt(fd, "kind"),
     bodyMd: opt(fd, "bodyMd"),
     author: opt(fd, "author"),
+    templateId: opt(fd, "templateId"),
     questionIds: fd.getAll("questionIds").map(String).filter(Boolean),
     claimIds: fd.getAll("claimIds").map(String).filter(Boolean),
   });

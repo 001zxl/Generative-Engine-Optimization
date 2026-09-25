@@ -1033,17 +1033,33 @@ export interface AssetRow {
   body_md: string | null;
   created_at: string;
   pub_count: number;
+  template_id?: string | null;
+  claim_count?: number;
+  evidence_count?: number;
 }
 
 export function listAssets(): AssetRow[] {
   return all<AssetRow>(
-    `SELECT a.*, (SELECT COUNT(*) FROM publications p WHERE p.asset_id = a.id) AS pub_count
+    `SELECT a.*,
+       (SELECT COUNT(*) FROM publications p WHERE p.asset_id = a.id) AS pub_count,
+       (SELECT COUNT(*) FROM content_claim_links l WHERE l.asset_id = a.id) AS claim_count,
+       (SELECT COUNT(DISTINCT e.id) FROM content_claim_links l
+          JOIN evidences e ON e.claim_id = l.claim_id WHERE l.asset_id = a.id) AS evidence_count
      FROM content_assets a WHERE a.workspace_id = ? ORDER BY a.created_at DESC`,
     workspaceId(),
   );
 }
 
-export function createAsset(input: { briefId?: string; kind?: string; title: string; bodyMd?: string; author?: string; questionIds?: string[]; claimIds?: string[] }): string {
+export function createAsset(input: {
+  briefId?: string;
+  kind?: string;
+  title: string;
+  bodyMd?: string;
+  author?: string;
+  templateId?: string | null;
+  questionIds?: string[];
+  claimIds?: string[];
+}): string {
   const id = newId("asset");
   const t = now();
   const slug = input.title
@@ -1052,8 +1068,8 @@ export function createAsset(input: { briefId?: string; kind?: string; title: str
     .replace(/^-|-$/g, "")
     .slice(0, 60);
   run(
-    `INSERT INTO content_assets (id, workspace_id, brief_id, kind, title, slug, body_md, status, author, reviewer, published_at, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 'draft', ?, NULL, NULL, ?, ?)`,
+    `INSERT INTO content_assets (id, workspace_id, brief_id, kind, title, slug, body_md, status, author, reviewer, published_at, created_at, updated_at, template_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'draft', ?, NULL, NULL, ?, ?, ?)`,
     id,
     workspaceId(),
     input.briefId ?? null,
@@ -1064,6 +1080,7 @@ export function createAsset(input: { briefId?: string; kind?: string; title: str
     input.author ?? null,
     t,
     t,
+    input.templateId ?? null,
   );
   for (const qid of input.questionIds ?? []) {
     run("INSERT INTO content_question_links (id, asset_id, question_id, created_at) VALUES (?, ?, ?, ?)", newId("cql"), id, qid, t);

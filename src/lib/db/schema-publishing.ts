@@ -33,6 +33,12 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_dispatches_own_slug ON publication_dispatc
  */
 export const PUBLISH_COLUMN_MIGRATIONS = [
   {
+    table: "content_assets",
+    column: "template_id",
+    ddl: "template_id TEXT",
+    note: "内容所用模板（what_is/faq/comparison/howto）—— 结构检查需要确定的模板依据，不能靠猜",
+  },
+  {
     table: "publication_checks",
     column: "gates_json",
     ddl: "gates_json TEXT NOT NULL DEFAULT '[]'",

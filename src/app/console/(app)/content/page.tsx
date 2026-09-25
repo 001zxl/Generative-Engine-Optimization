@@ -17,6 +17,14 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { assetCreate, assetPublish, assetReview, briefCreate, channelCreate } from "../actions";
+import {
+  CONTENT_TEMPLATES,
+  buildSkeleton,
+  getTemplate,
+  lintContent,
+  lintVerdict,
+  type ContentTemplateId,
+} from "@/lib/content-templates";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -41,7 +49,13 @@ const CHANNEL_KINDS = [
  * 未接入的平台保留人工发布并回填 URL；已接入的自有站点和授权渠道
  * 在审核通过后通过发布中心执行。
  */
-export default function ContentPage() {
+export default async function ContentPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ template?: string; asset?: string }>;
+}) {
+  const { template: templateParam } = await searchParams;
+  const activeTemplate = templateParam && getTemplate(templateParam) ? (templateParam as ContentTemplateId) : undefined;
   const briefs = R.listBriefs();
   const assets = R.listAssets();
   const channels = R.listChannels();
@@ -130,6 +144,40 @@ export default function ContentPage() {
                     <TableCell>
                       <div className="font-medium">{a.title}</div>
                       {a.slug && <div className="font-mono text-xs text-muted-foreground">/{a.slug}</div>}
+                      {(() => {
+                        // 结构检查：只在能确定模板时进行，不猜模板
+                        const tpl = a.template_id ?? null;
+                        if (!tpl || !getTemplate(tpl)) {
+                          return (
+                            <div className="mt-1 text-xs text-muted-foreground">
+                              未选模板 —— 无法做结构检查（新建时可选择）
+                            </div>
+                          );
+                        }
+                        const issues = lintContent({
+                          templateId: tpl as ContentTemplateId,
+                          body: a.body_md ?? "",
+                          sourceCount: a.evidence_count ?? 0,
+                          approvedFactCount: a.claim_count ?? 0,
+                        });
+                        const v = lintVerdict(issues);
+                        return (
+                          <div className="mt-1.5 space-y-0.5">
+                            <div className={`text-xs font-medium ${v.ok ? "text-ok" : "text-fail"}`}>
+                              {getTemplate(tpl)?.name} ·{" "}
+                              {v.ok ? `结构通过（${v.warnings} 条建议）` : `${v.blockers} 项未通过`}
+                            </div>
+                            {issues.slice(0, 3).map((i) => (
+                              <div
+                                key={i.code}
+                                className={`text-xs ${i.level === "block" ? "text-fail" : "text-muted-foreground"}`}
+                              >
+                                · {i.message}
+                              </div>
+                            ))}
+                          </div>
+                        );
+                      })()}
                     </TableCell>
                     <TableCell className="text-xs text-muted-foreground">{a.kind}</TableCell>
                     <TableCell>
@@ -173,11 +221,37 @@ export default function ContentPage() {
       </SectionCard>
 
       {/* —— 新建内容 —— */}
-      <SectionCard title="新建内容" description="选中它要回答的问题、以及允许引用的事实 —— 未批准的事实不应进入对外内容。">
+      <SectionCard
+        title="新建内容"
+        description="选中它要回答的问题、以及允许引用的事实 —— 未批准的事实不应进入对外内容。先选模板可生成结构骨架，避免一上来就写成散文。"
+      >
+        <form method="get" action="/console/content" className="mb-4 flex flex-wrap items-end gap-3 rounded-lg border border-dashed p-3">
+          <Field label="按模板生成骨架" htmlFor="c-tpl" hint="选模板后页面会预填结构，含必备小节">
+            <select id="c-tpl" name="template" className={SELECT_CLS} defaultValue={activeTemplate ?? ""}>
+              <option value="">（不用模板）</option>
+              {CONTENT_TEMPLATES.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Button type="submit" size="sm" variant="outline">
+            生成骨架
+          </Button>
+          {activeTemplate && (
+            <p className="text-xs text-muted-foreground">
+              适用：{getTemplate(activeTemplate)?.useWhen}
+              <br />
+              必备小节：{getTemplate(activeTemplate)?.requiredSections.join(" / ")}
+            </p>
+          )}
+        </form>
         {questions.length === 0 ? (
           <EmptyState>需要先在问题库建立问题。</EmptyState>
         ) : (
           <form action={assetCreate} className="flex flex-col gap-4">
+            <input type="hidden" name="templateId" value={activeTemplate ?? ""} />
             <div className="grid gap-3 sm:grid-cols-3">
               <Field label="标题" htmlFor="a-title">
                 <Input id="a-title" name="title" placeholder="铝合金型材最小起订量（MOQ）怎么算" required />
@@ -196,8 +270,17 @@ export default function ContentPage() {
               </Field>
             </div>
 
-            <Field label="正文（Markdown）" htmlFor="a-body" hint="建议第一段就直答问题，随后用表格与列表展开。">
-              <Textarea id="a-body" name="bodyMd" className="min-h-24 font-mono text-xs" />
+            <Field
+              label="正文（Markdown）"
+              htmlFor="a-body"
+              hint="建议第一段就直答问题，随后用表格与列表展开。支持标题、列表、表格与链接；原始 HTML 不会被执行。"
+            >
+              <Textarea
+                id="a-body"
+                name="bodyMd"
+                className="min-h-32 font-mono text-xs"
+                defaultValue={activeTemplate ? buildSkeleton(activeTemplate) : ""}
+              />
             </Field>
 
             <div className="grid gap-4 sm:grid-cols-2">

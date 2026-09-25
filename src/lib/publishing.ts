@@ -3,6 +3,7 @@ import { newId, sha256 } from "./id.ts";
 import { fetchPage } from "./net/fetch-page.ts";
 import { parseRobots, isAllowed, declaredSitemaps } from "./net/robots.ts";
 import { CRITICAL_BOTS } from "./checks/bots.ts";
+import { markdownToHtml } from "./markdown.ts";
 
 export const PUBLISH_CHANNELS = [
   { id: "own_site", name: "本站知识页" },
@@ -123,15 +124,31 @@ function escapeHtml(text: string): string {
   return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
-/** Deliberately small Markdown subset: headings + paragraphs, no raw HTML execution. */
+/**
+ * 发布正文 → HTML。
+ *
+ * 复用知识页同一个解析器（`@/lib/markdown`）：此前这里是第二份只认标题和
+ * 段落的实现，导致发布出去的正文丢掉列表与表格，而页面上却有 ——
+ * 同一篇文章两个样子，抓取到的和看到的不一致。
+ */
 export function publicationHtml(snapshot: PublishSnapshot): string {
-  const blocks = snapshot.body.split(/\n\s*\n/).map((block) => {
-    const heading = /^(#{1,6})\s+([^\n]+)$/.exec(block.trim());
-    if (heading) { const level = Math.max(2, heading[1].length); return `<h${level}>${escapeHtml(heading[2])}</h${level}>`; }
-    return `<p>${escapeHtml(block).replace(/\n/g, "<br />")}</p>`;
-  });
-  if (snapshot.evidences.length) blocks.push(`<h2>证据与参考来源</h2><ul>${snapshot.evidences.map((e) => `<li><a href="${escapeHtml(e.url)}">${escapeHtml(e.title)}</a>${e.publisher ? ` — ${escapeHtml(e.publisher)}` : ""}</li>`).join("")}</ul>`);
-  return blocks.join("\n");
+  const parts = [markdownToHtml(snapshot.body)];
+  if (snapshot.evidences.length) {
+    parts.push(
+      `<h2>证据与参考来源</h2><ul>${snapshot.evidences
+        .map((e) => {
+          const href = safePublicationUrl(e.url);
+          const title = escapeHtml(e.title);
+          const publisher = e.publisher ? ` — ${escapeHtml(e.publisher)}` : "";
+          // 不合格的链接只显示文字，不输出 href
+          return href
+            ? `<li><a href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer">${title}</a>${publisher}</li>`
+            : `<li>${title}${publisher}</li>`;
+        })
+        .join("")}</ul>`,
+    );
+  }
+  return parts.join("\n");
 }
 
 export type AdapterResult = { ok: true; url: string; remoteId?: string } | { ok: false; uncertain: boolean; error: string };
