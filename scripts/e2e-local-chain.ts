@@ -96,6 +96,20 @@ const scenario = L.createScenario({
 });
 check("锚点与场景创建", !!anchor && !!scenario);
 
+// 场景没绑锚点时必须在就绪度里被指出来。
+// 试点库里曾出现过 2 个锚点行消失、对应场景 anchor_id 被置空的情况，
+// 而当时没有任何地方提示 —— 报告页只显示「（无锚点）」。
+const orphanScenario = L.createScenario({ storeId: store, anchorId: null, radiusM: 500, daypart: "lunch", need: "无锚点场景" });
+const readinessWithOrphan = L.storeReadiness(store);
+check("未绑定锚点的场景被计入", readinessWithOrphan.scenariosWithoutAnchor === 1, String(readinessWithOrphan.scenariosWithoutAnchor));
+check(
+  "未绑定锚点会成为就绪度阻断项",
+  readinessWithOrphan.blockers.some((b) => b.includes("没有绑定锚点")),
+  JSON.stringify(readinessWithOrphan.blockers),
+);
+L.deleteScenario(orphanScenario);
+check("删除后不再计为阻断", L.storeReadiness(store).scenariosWithoutAnchor === 0);
+
 console.log("== 4. 采样批次：两种定位方式必须分开 ==");
 const qsId = R.createQuerySet("门店问题集", brandId);
 R.addQuestions(qsId, [

@@ -629,6 +629,8 @@ export function storeReadiness(storeId: string): {
   anchors: number;
   scenarios: number;
   openDiffs: number;
+  /** 没有绑定锚点的场景数 —— 这类场景在报告里会显示成「（无锚点）」，无法解释 */
+  scenariosWithoutAnchor: number;
   blockers: string[];
 } {
   const facts = listStoreFacts(storeId);
@@ -638,6 +640,8 @@ export function storeReadiness(storeId: string): {
   const anchors = listAnchors(storeId);
   const scenarios = listScenarios(storeId);
   const openDiffs = listMapDiffs({ storeId, onlyOpen: true });
+  // 场景没绑锚点 = 无法说明"在这种情况下预期什么"，报告里只能显示「（无锚点）」
+  const scenariosWithoutAnchor = scenarios.filter((g) => !g.anchor_id).length;
 
   const blockers: string[] = [];
   if (facts.length === 0) blockers.push("还没有任何门店事实");
@@ -647,6 +651,9 @@ export function storeReadiness(storeId: string): {
   if (anchors.length === 0) blockers.push("还没有测试锚点");
   if (scenarios.length === 0) blockers.push("还没有地理测试场景");
   if (openDiffs.some((d) => d.severity === "block")) blockers.push("存在阻断级资料差异（店名/地址不一致）");
+  if (scenariosWithoutAnchor > 0) {
+    blockers.push(`${scenariosWithoutAnchor} 个场景没有绑定锚点 —— 报告里会显示「（无锚点）」，无法解释预期`);
+  }
 
   return {
     factsTotal: facts.length,
@@ -656,6 +663,7 @@ export function storeReadiness(storeId: string): {
     anchors: anchors.length,
     scenarios: scenarios.length,
     openDiffs: openDiffs.length,
+    scenariosWithoutAnchor,
     blockers,
   };
 }
