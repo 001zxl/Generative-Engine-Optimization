@@ -3,7 +3,8 @@ import { newId, sha256 } from "./id.ts";
 import { fetchPage } from "./net/fetch-page.ts";
 import { parseRobots, isAllowed, declaredSitemaps } from "./net/robots.ts";
 import { CRITICAL_BOTS } from "./checks/bots.ts";
-import { markdownToHtml } from "./markdown.ts";
+import { markdownToHtml, markdownToPlainText } from "./markdown.ts";
+import { articleJsonLd as articleJsonLdFrom, serializeJsonLd } from "./jsonld.ts";
 
 export const PUBLISH_CHANNELS = [
   { id: "own_site", name: "本站知识页" },
@@ -274,11 +275,25 @@ export function getPublishedKnowledge(slug: string): PublishedKnowledge | undefi
   return listPublishedKnowledge().find((article) => article.slug === decoded);
 }
 
+/**
+ * 文章结构化数据。
+ *
+ * 统一走 @/lib/jsonld：空字段会被剔除、`<` 会被转义（防止 JSON-LD 提前闭合
+ * script 标签）。此前这里是手写 JSON.stringify，缺少转义。
+ */
 export function articleJsonLd(article: PublishedKnowledge): string {
-  return JSON.stringify({ "@context": "https://schema.org", "@type": "Article", headline: article.title,
-    author: { "@type": "Person", name: article.author }, datePublished: article.publishedAt,
-    dateModified: article.publishedAt, mainEntityOfPage: article.url, url: article.url,
-    citation: article.evidences.map((e) => e.url) }).replace(/</g, "\\u003c");
+  return serializeJsonLd(
+    articleJsonLdFrom({
+      title: article.title,
+      body: article.body,
+      author: article.author,
+      publishedAt: article.publishedAt,
+      url: article.url,
+      description: markdownToPlainText(article.body, 160),
+      // 只把合格链接写进 citation，不合格的宁可不写
+      citations: article.evidences.map((e) => safePublicationUrl(e.url)).filter((u): u is string => !!u),
+    }, { baseUrl: siteBase(), path: new URL(article.url).pathname }),
+  );
 }
 
 export async function checkPublicationDispatch(id: string): Promise<{ ok: boolean; note: string }> {

@@ -6,6 +6,8 @@ import { LeadForm } from "@/components/forms";
 import { PageView } from "@/components/page-view";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { serializeJsonLd, storeJsonLd } from "@/lib/jsonld";
+import { site } from "@/lib/site";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -58,6 +60,14 @@ export default async function PublicStorePage({ params }: { params: Promise<{ sl
 
   return (
     <div className="mx-auto max-w-3xl px-5 py-10">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: serializeJsonLd(
+            storeJsonLd(store, { baseUrl: site.baseUrl, path: `/stores/${encodeURIComponent(page.slug)}` }),
+          ),
+        }}
+      />
       <PageView path={`/stores/${page.slug}`} />
       <Link href="/" className="text-sm text-muted-foreground hover:underline">
         ← 返回首页

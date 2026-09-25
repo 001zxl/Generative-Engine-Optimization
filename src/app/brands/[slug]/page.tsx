@@ -5,6 +5,8 @@ import { getPublishedSnapshot } from "@/lib/db/repo-public";
 import { LeadForm } from "@/components/forms";
 import { PageView } from "@/components/page-view";
 import { Badge } from "@/components/ui/badge";
+import { brandJsonLd, serializeJsonLd } from "@/lib/jsonld";
+import { site } from "@/lib/site";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -45,6 +47,14 @@ export default async function PublicBrandPage({ params }: { params: Promise<{ sl
 
   return (
     <div className="mx-auto max-w-3xl px-5 py-10">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: serializeJsonLd(
+            brandJsonLd(brand, { baseUrl: site.baseUrl, path: `/brands/${encodeURIComponent(page.slug)}` }),
+          ),
+        }}
+      />
       <PageView path={`/brands/${page.slug}`} />
       <Link href="/" className="text-sm text-muted-foreground hover:underline">
         ← 返回首页

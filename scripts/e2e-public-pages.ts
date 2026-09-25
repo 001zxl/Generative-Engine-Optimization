@@ -113,6 +113,39 @@ check("页面显示更新时间", /最后更新于\s*\d{4}-\d{2}-\d{2}/.test(htm
 check("页面有咨询入口", html.includes("咨询") && /<form/.test(html));
 check("页面有站内链接", html.includes('href="/"') || html.includes("返回首页"));
 
+console.log("== 3b. A3 结构化数据 ==");
+const ldMatch = /<script type="application\/ld\+json">([\s\S]*?)<\/script>/.exec(html);
+check("页面含 JSON-LD", !!ldMatch);
+let ld: Record<string, unknown> = {};
+if (ldMatch) {
+  try {
+    ld = JSON.parse(ldMatch[1].replace(/\\u003c/g, "<"));
+  } catch (e) {
+    check("JSON-LD 可解析", false, String(e));
+  }
+}
+check("JSON-LD 可解析", Object.keys(ld).length > 0);
+check("门店用 Restaurant（餐饮类）", ld["@type"] === "Restaurant", String(ld["@type"]));
+check("JSON-LD 名称为页面店名", ld.name === "公开页测试门店", String(ld.name));
+check("JSON-LD 电话与页面一致", ld.telephone === "0536-1234567", String(ld.telephone));
+check(
+  "JSON-LD 地址与页面一致",
+  (ld.address as Record<string, unknown> | undefined)?.streetAddress === "六马路 1 号",
+  JSON.stringify(ld.address),
+);
+check(
+  "JSON-LD 不含评分/奖项（不得编造）",
+  !JSON.stringify(ld).includes("aggregateRating") && !JSON.stringify(ld).includes("award"),
+);
+check("JSON-LD 不含页面上没有的国家代码", !JSON.stringify(ld).includes('"CN"'));
+
+// 一致性自检：结构化数据里的关键字段必须能在页面可见文本里找到
+const { checkJsonLdConsistency } = await import("../src/lib/jsonld.ts");
+const visibleText = html.replace(/<script[\s\S]*?<\/script>/g, " ").replace(/<[^>]*>/g, " ").replace(/\s+/g, " ");
+const visibleLinks = [...html.matchAll(/href="([^"]+)"/g)].map((m) => m[1]);
+const inconsistencies = checkJsonLdConsistency(ld, { text: visibleText, links: visibleLinks });
+check("结构化数据与页面可见内容一致", inconsistencies.length === 0, JSON.stringify(inconsistencies));
+
 console.log("== 4. 内部字段不得外泄 ==");
 check("不含 status_note 值", !html.includes("出餐慢"));
 
@@ -146,6 +179,14 @@ const brandHtml = await res.text();
 check("品牌页公开后 200", res.status === 200, `HTTP ${res.status}`);
 check("品牌页显示已批准事实", brandHtml.includes("月产能 200 吨"));
 check("品牌页逐条列出证据", brandHtml.includes("官方产能说明") && brandHtml.includes("https://pubtest.example/capacity"));
+const brandLdMatch = /<script type="application\/ld\+json">([\s\S]*?)<\/script>/.exec(brandHtml);
+check("品牌页含 JSON-LD", !!brandLdMatch);
+if (brandLdMatch) {
+  const bld = JSON.parse(brandLdMatch[1].replace(/\\u003c/g, "<")) as Record<string, unknown>;
+  check("品牌用 Organization", bld["@type"] === "Organization", String(bld["@type"]));
+  const subject = bld.subjectOf as Array<Record<string, unknown>> | undefined;
+  check("品牌事实带 citation", !!subject && subject.length === 1 && (subject[0].citation as string[])[0] === "https://pubtest.example/capacity");
+}
 
 console.log("== 8. 下线后必须立刻不可访问 ==");
 PP.archivePage(storePageId, "验收下线");
