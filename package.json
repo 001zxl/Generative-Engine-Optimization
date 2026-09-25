@@ -6,7 +6,7 @@
   "description": "GEO 获客推广系统 · 批次1：工程底座 + 免费工具 + 可分享结果页",
   "scripts": {
     "dev": "next dev -p 3100",
-    "build": "node scripts/preflight.ts && next build",
+    "build": "node scripts/preflight.ts build && next build",
     "start": "node scripts/preflight.ts && next start -p 3100",
     "typecheck": "tsc --noEmit",
     "test": "node --test \"tests/*.test.ts\"",

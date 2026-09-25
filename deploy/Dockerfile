@@ -11,25 +11,30 @@
 # ---------- 依赖层 ----------
 FROM node:24-bookworm-slim AS deps
 WORKDIR /app
-RUN corepack enable
+# npm 源可配置：默认官方源（墙外部署无需改动），
+# 在网络受限的环境用 --build-arg NPM_REGISTRY=https://registry.npmmirror.com 指定镜像源。
+# corepack 拉取 pnpm 走的是自己的变量，所以要单独设 COREPACK_NPM_REGISTRY。
+ARG NPM_REGISTRY=https://registry.npmjs.org
+ENV COREPACK_NPM_REGISTRY=$NPM_REGISTRY
+RUN npm config set registry "$NPM_REGISTRY" && corepack enable
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
 
 # ---------- 构建层 ----------
 FROM node:24-bookworm-slim AS builder
 WORKDIR /app
-RUN corepack enable
+ARG NPM_REGISTRY=https://registry.npmjs.org
+ENV COREPACK_NPM_REGISTRY=$NPM_REGISTRY
+RUN npm config set registry "$NPM_REGISTRY" && corepack enable
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 # 只注入公开配置：这些值会被固化进静态预渲染页面（/methods、/tools/*）
 ARG APP_BASE_URL
 ARG SITE_NAME
 ARG CONTACT_EMAIL
-RUN APP_BASE_URL="$APP_BASE_URL" SITE_NAME="$SITE_NAME" CONTACT_EMAIL="$CONTACT_EMAIL" \
-    node scripts/preflight.ts build \
- && APP_BASE_URL="$APP_BASE_URL" SITE_NAME="$SITE_NAME" CONTACT_EMAIL="$CONTACT_EMAIL" \
-    pnpm build
-# 构建产物里不应残留密钥；这里显式声明一遍，任何后续步骤都看不到它们
+# pnpm build 内部先跑构建期配置校验（只查公开配置，不读也不要求任何密钥），
+# 再执行 next build。密钥绝不注入这一层 —— 否则会被写进镜像层。
+RUN APP_BASE_URL="$APP_BASE_URL" SITE_NAME="$SITE_NAME" CONTACT_EMAIL="$CONTACT_EMAIL" pnpm build
 
 # ---------- 运行层 ----------
 FROM node:24-bookworm-slim AS runner
@@ -49,9 +54,12 @@ COPY --from=builder --chown=app:app /app/package.json ./package.json
 COPY --from=builder --chown=app:app /app/scripts ./scripts
 COPY --from=builder --chown=app:app /app/src ./src
 COPY --from=builder --chown=app:app /app/tsconfig.json ./tsconfig.json
-COPY --from=builder --chown=app:app /app/next.config.ts ./next.config.ts
-COPY --from=builder --chown=app:app /app/deploy/entrypoint.sh ./deploy/entrypoint.sh
-RUN chmod +x /app/deploy/entrypoint.sh
+COPY --from=builder --chown=app:app /app/next.config.mjs ./next.config.mjs
+COPY --from=builder --chown=app:app /app/postcss.config.mjs ./postcss.config.mjs
+# 整个 deploy/ 一起复制：备份/恢复/核对脚本是运维流程的一部分。
+# 曾经只复制 entrypoint.sh，导致文档里写的 `deploy/backup.sh` 在容器里根本不存在。
+COPY --from=builder --chown=app:app /app/deploy ./deploy
+RUN chmod +x /app/deploy/*.sh
 
 USER app
 EXPOSE 3000

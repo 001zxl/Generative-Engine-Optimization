@@ -52,10 +52,15 @@ test("Dockerfile 不得把密钥作为构建参数或环境变量", () => {
   }
 });
 
-test("Dockerfile 只把公开配置作为构建参数", () => {
+test("Dockerfile 的构建参数里没有任何密钥", () => {
   const text = read("deploy/Dockerfile");
-  const args = [...text.matchAll(/^\s*ARG\s+(\w+)/gm)].map((m) => m[1]).sort();
-  assert.deepEqual(args, ["APP_BASE_URL", "CONTACT_EMAIL", "SITE_NAME"]);
+  // 同一个 ARG 可能在多个阶段重复声明，去重后比较
+  const args = [...new Set([...text.matchAll(/^\s*ARG\s+(\w+)/gm)].map((m) => m[1]))].sort();
+  // 允许的构建参数只有公开配置与 npm 源；密钥一律不得成为 ARG
+  assert.deepEqual(args, ["APP_BASE_URL", "CONTACT_EMAIL", "NPM_REGISTRY", "SITE_NAME"]);
+  for (const arg of args) {
+    assert.ok(!/PASSWORD|SECRET|TOKEN|KEY/i.test(arg), `${arg} 看起来是密钥，不得作为构建参数`);
+  }
 });
 
 test("Dockerfile 以非 root 运行并声明数据卷挂载点", () => {
@@ -169,4 +174,71 @@ test("纯逻辑里的证据种类与数据库 CHECK 完全一致", async () => {
   const m = /evidence_kind\s+TEXT\s+NOT\s+NULL\s+CHECK\s*\(\s*evidence_kind\s+IN\s*\(([^)]*)\)/i.exec(schema)!;
   const allowed = m[1].split(",").map((v) => v.trim().replace(/^'|'$/g, "")).sort();
   assert.deepEqual(EVIDENCE_KINDS.map((k) => k.value).sort(), allowed);
+});
+
+test("pnpm build 用构建期阶段（构建不该需要密钥）", () => {
+  const pkg = JSON.parse(read("package.json")) as { scripts: Record<string, string> };
+  // 这条曾经是错的：build 跑的是 all 阶段，会要求 CONSOLE_PASSWORD/AUTH_SECRET，
+  // 而这两个必须不出现在构建环境。Docker 构建与 CI 首次运行都会因此失败。
+  assert.match(pkg.scripts.build, /preflight\.ts build/, `build 应为：${pkg.scripts.build}`);
+  assert.ok(!/preflight\.ts\s*&&/.test(pkg.scripts.build), "build 不得使用 all 阶段");
+});
+
+test("pnpm start 用 all 阶段（本地起服务时公开配置与密钥都要查）", () => {
+  const pkg = JSON.parse(read("package.json")) as { scripts: Record<string, string> };
+  assert.match(pkg.scripts.start, /preflight\.ts(?!\s+build|\s+runtime)/, `start 应为：${pkg.scripts.start}`);
+});
+
+test("Dockerfile 不在构建层重复执行 preflight（避免再次引入密钥依赖）", () => {
+  const text = read("deploy/Dockerfile");
+  const buildStage = text.slice(text.indexOf("AS builder"), text.indexOf("AS runner"));
+  assert.ok(!/preflight\.ts\s*\\?\s*$|preflight\.ts build/m.test(buildStage.replace(/pnpm build/g, "")), "构建层不应单独再跑一次 preflight");
+  assert.match(buildStage, /pnpm build/);
+});
+
+test("Dockerfile 的 npm 源可配置（受限网络可用镜像源）", () => {
+  const text = read("deploy/Dockerfile");
+  assert.match(text, /ARG NPM_REGISTRY=https:\/\/registry\.npmjs\.org/, "默认必须是官方源");
+  assert.match(text, /COREPACK_NPM_REGISTRY/, "corepack 拉 pnpm 走自己的变量，必须单独设");
+});
+
+test("Dockerfile 里 COPY 的每个路径都真实存在（路径写错只有真构建才发现）", () => {
+  const text = read("deploy/Dockerfile");
+  const paths = [...text.matchAll(/^COPY --from=builder[^\n]*?\s(\/app\/([^\s]+))\s\.\/([^\s]+)/gm)];
+  assert.ok(paths.length >= 6, `解析到 ${paths.length} 条 COPY`);
+  for (const m of paths) {
+    const source = m[2];
+    assert.ok(fs.existsSync(path.join(root, source)), `Dockerfile 引用了不存在的路径：${source}`);
+  }
+});
+
+test("Dockerfile 不引用不存在的构建参数与顶层配置文件", () => {
+  const text = read("deploy/Dockerfile");
+  // next 配置文件名写错过一次（next.config.ts 并不存在）
+  assert.ok(!/next\.config\.ts/.test(text), "应为 next.config.mjs");
+  assert.ok(/next\.config\.mjs/.test(text));
+});
+
+test("运维脚本都在镜像里（文档里写了的命令必须能跑）", () => {
+  const text = read("deploy/Dockerfile");
+  // 曾经只复制 entrypoint.sh，文档里的 deploy/backup.sh 在容器里不存在
+  assert.match(text, /COPY --from=builder[^\n]*\/app\/deploy \.\/deploy/, "应整体复制 deploy/");
+  for (const script of ["deploy/backup.sh", "deploy/restore.sh", "deploy/db-tool.mjs", "deploy/entrypoint.sh"]) {
+    assert.ok(fs.existsSync(path.join(root, script)), `${script} 不存在`);
+  }
+});
+
+test("部署文档里提到的容器内命令，其脚本都确实被复制进镜像", () => {
+  const doc = read("deploy/README.md");
+  const text = read("deploy/Dockerfile");
+  const mentioned = [...doc.matchAll(/(deploy\/[a-z-]+\.(?:sh|mjs))/g)].map((m) => m[1]);
+  assert.ok(mentioned.length >= 2, `文档提到 ${mentioned.length} 个脚本`);
+  for (const script of new Set(mentioned)) {
+    const file = script.split("/")[1];
+    assert.ok(
+      text.includes("./deploy") || text.includes(script),
+      `文档提到 ${script}，但 Dockerfile 没有把它复制进镜像`,
+    );
+    assert.ok(fs.existsSync(path.join(root, script)), `${script} 文件不存在`);
+  }
 });
