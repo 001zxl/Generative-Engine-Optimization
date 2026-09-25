@@ -23,6 +23,7 @@ import {
   IconWorld,
   IconReportAnalytics,
   IconClipboardList,
+  IconBooks,
 } from "@tabler/icons-react";
 import {
   Sidebar,
@@ -54,6 +55,7 @@ const SECTIONS = [
       { href: "/console/brands", label: "1 · 品牌与竞品", icon: IconBuildingStore },
       { href: "/console/questions", label: "2 · 问题库", icon: IconHelpCircle },
       { href: "/console/claims", label: "3 · 事实与证据", icon: IconFileCheck },
+      { href: "/console/sources", label: "3b · 第三方信源", icon: IconBooks },
       { href: "/console/sampling", label: "4 · 多平台采样", icon: IconClipboardText },
       { href: "/console/evaluation", label: "5 · 评估与指标", icon: IconChartDots },
       { href: "/console/content", label: "6 · 内容与推广", icon: IconFileText },
