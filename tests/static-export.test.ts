@@ -373,3 +373,10 @@ test("索引页的条目链接在子路径部署下也必须可用（不能是�
   // 从索引页出发解析：仍指向同一个文件
   assert.deepEqual(resolveReference("index.html", "stores/x/"), { kind: "local", path: "stores/x/index.html" });
 });
+
+test("正文里指向站点根的链接也要改写（留在 / 会在子路径部署时跳到域名根）", () => {
+  assert.ok(rewriteLocalRefs(`<a href="/">首页</a>`, 2).includes('href="../../"'), rewriteLocalRefs(`<a href="/">首页</a>`, 2));
+  assert.ok(rewriteLocalRefs(`<a href="./">首页</a>`, 2).includes('href="../../"'));
+  // 站点根页面保持 ./，不要变成空字符串
+  assert.ok(rewriteLocalRefs(`<a href="/">首页</a>`, 0).includes('href="./"'));
+});

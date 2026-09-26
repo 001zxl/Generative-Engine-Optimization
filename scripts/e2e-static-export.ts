@@ -115,7 +115,10 @@ fs.writeFileSync(path.join(ASSETS, "img", "store.jpg"), Buffer.from([0xff, 0xd8,
 const assetId = R.createAsset({
   kind: "article",
   title: "关于我们门店的说明",
-  bodyMd: "## 结论\n海鹏菜馆是一家主营炒菜的家常餐馆。\n\n![门头照片](assets/img/store.jpg)\n\n## 来源\n- [产能说明](https://brand.example/capacity)",
+  // 故意包含三类站内引用：图片、指向站点根的链接、指向目录的链接
+  bodyMd:
+    "## 结论\n海鹏菜馆是一家主营炒菜的家常餐馆。\n\n![门头照片](assets/img/store.jpg)\n\n" +
+    "- [返回首页](/)\n\n## 来源\n- [产能说明](https://brand.example/capacity)",
   claimIds: [claimId],
 });
 R.reviewAsset(assetId, "approved");
@@ -218,7 +221,8 @@ console.log("== 5. 图片与样式 ==");
 check("样式文件已生成", exists("style.css"));
 check("图片已复制到 assets/", exists("assets/img/store.jpg"), fs.existsSync(path.join(OUT, "assets")) ? fs.readdirSync(path.join(OUT, "assets")).join(",") : "无 assets 目录");
 const articleHtml = readFile(`knowledge/${knowledgeDirs[0]}/index.html`);
-check("文章页引用了图片", articleHtml.includes("assets/img/store.jpg"));
+check("文章页引用了图片（页面相对）", articleHtml.includes("../../assets/img/store.jpg"), articleHtml.match(/<img[^>]*>/)?.[0] ?? "无 img");
+check("正文里的根链接被改写成相对路径", articleHtml.includes('href="../../"') && !/<a href="\/">/.test(articleHtml));
 check("图片有 alt", articleHtml.includes('alt="门头照片"'));
 check("样式表被引用", articleHtml.includes("style.css"));
 check("文章表格之外的结构仍在（标题/列表）", /<h2[\s>]/.test(articleHtml) && /<ul[\s>]/.test(articleHtml));

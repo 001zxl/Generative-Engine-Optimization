@@ -471,7 +471,10 @@ export function rewriteLocalRefs(html: string, depth: number): string {
       }
       parts.push(seg);
     }
-    if (escaped || parts.length === 0) return whole;
+    if (escaped) return whole;
+    // 指向站点根（`/`、`./`）：改成从本页回根的相对路径。
+    // 直接留 `/` 会在子路径部署时跳到域名根 —— 跑到别的站点去。
+    if (parts.length === 0) return `${attr}="${prefix || "./"}"`;
     // 目录链接必须保留结尾斜杠：`knowledge/b/` 打开的是 knowledge/b/index.html，
     // 丢掉斜杠后静态托管可能不给你重定向，直接 404
     const trailing = v.endsWith("/") ? "/" : "";
