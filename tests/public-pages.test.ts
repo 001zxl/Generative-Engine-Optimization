@@ -72,22 +72,22 @@ test("白名单外的键不进公开页面（内部备注不该外泄）", () =>
 });
 
 test("新鲜且已核验的事实正常公开", () => {
-  const r = selectPublicFacts([fact({ fact_key: "address", value: "潍坊市坊子区六马路" })], { now: NOW });
+  const r = selectPublicFacts([fact({ fact_key: "address", value: "示例市示例区示例路" })], { now: NOW });
   assert.equal(r.visible.length, 1);
-  assert.equal(r.visible[0].value, "潍坊市坊子区六马路");
+  assert.equal(r.visible[0].value, "示例市示例区示例路");
 });
 
 /* ---------------- 门店页发布检查 ---------------- */
 
 const OK_FACTS: RawFact[] = [
-  fact({ fact_key: "name", value: "海鹏菜馆" }),
-  fact({ fact_key: "address", value: "潍坊市坊子区六马路美的亚大厦对面" }),
-  fact({ fact_key: "phone", value: "0536-0000000" }),
+  fact({ fact_key: "name", value: "示例菜馆" }),
+  fact({ fact_key: "address", value: "示例市示例区示例路示例大厦对面" }),
+  fact({ fact_key: "phone", value: "0000-0000000" }),
 ];
 
 function storeInput(over: Partial<Parameters<typeof checkStorePublishable>[0]> = {}) {
   return {
-    store: { status: "active", address: "潍坊市坊子区六马路美的亚大厦对面", name: "海鹏菜馆" },
+    store: { status: "active", address: "示例市示例区示例路示例大厦对面", name: "示例菜馆" },
     visibleFacts: OK_FACTS,
     hoursText: "每日 09:00-21:30",
     blockingMapDiffs: 0,
@@ -103,7 +103,7 @@ test("资料齐全时通过", () => {
 });
 
 test("缺地址判为阻断（门店页没有地址等于没有用）", () => {
-  const r = checkStorePublishable(storeInput({ store: { status: "active", address: null, name: "海鹏菜馆" }, visibleFacts: [] }));
+  const r = checkStorePublishable(storeInput({ store: { status: "active", address: null, name: "示例菜馆" }, visibleFacts: [] }));
   assert.equal(r.ok, false);
   assert.ok(r.blockers.some((b) => b.includes("地址")));
 });
@@ -116,13 +116,13 @@ test("缺营业时间判为阻断", () => {
 
 test("已关闭/已迁址/待核实的门店不能公开", () => {
   for (const status of ["permanently_closed", "moved", "unverified"]) {
-    const r = checkStorePublishable(storeInput({ store: { status, address: "x", name: "海鹏菜馆" } }));
+    const r = checkStorePublishable(storeInput({ store: { status, address: "x", name: "示例菜馆" } }));
     assert.equal(r.ok, false, status);
   }
 });
 
 test("暂停营业可以公开但要显著标注（警告而非阻断）", () => {
-  const r = checkStorePublishable(storeInput({ store: { status: "temporarily_closed", address: "x", name: "海鹏菜馆" } }));
+  const r = checkStorePublishable(storeInput({ store: { status: "temporarily_closed", address: "x", name: "示例菜馆" } }));
   assert.equal(r.ok, true);
   assert.ok(r.warnings.some((w) => w.includes("暂停营业")));
 });
@@ -179,15 +179,15 @@ test("证据没有可访问链接只给警告（纸质材料也算来源）", ()
 
 test("门店快照只带可见事实，且不含内部字段", () => {
   const snap = buildStoreSnapshot({
-    store: { name: "海鹏菜馆", city: "潍坊市", district: "坊子区", address: "六马路", category: "餐饮", service_radius_km: 3, status: "active" },
+    store: { name: "示例菜馆", city: "示例市", district: "示例区", address: "示例路", category: "餐饮", service_radius_km: 3, status: "active" },
     visibleFacts: OK_FACTS,
     hoursText: "每日 09:00-21:30",
     mapLinks: [],
     updatedAt: "2026-09-25T00:00:00Z",
   });
   assert.equal(snap.kind, "store");
-  assert.equal(snap.name, "海鹏菜馆");
-  assert.equal(snap.phone, "0536-0000000");
+  assert.equal(snap.name, "示例菜馆");
+  assert.equal(snap.phone, "0000-0000000");
   assert.equal(snap.statusNote, null);
   assert.deepEqual(snap.facts.map((f) => f.key).sort(), ["address", "name", "phone"]);
   // 内部字段不得出现
@@ -196,7 +196,7 @@ test("门店快照只带可见事实，且不含内部字段", () => {
 
 test("暂停营业的快照带出提示文本", () => {
   const snap = buildStoreSnapshot({
-    store: { name: "海鹏菜馆", city: null, district: null, address: "x", category: null, service_radius_km: null, status: "temporarily_closed" },
+    store: { name: "示例菜馆", city: null, district: null, address: "x", category: null, service_radius_km: null, status: "temporarily_closed" },
     visibleFacts: OK_FACTS,
     hoursText: null,
     mapLinks: [],
@@ -213,8 +213,8 @@ test("事实值优先于门店主档字段（门户字段可能早已过时）",
     mapLinks: [],
     updatedAt: "2026-09-25T00:00:00Z",
   });
-  assert.equal(snap.name, "海鹏菜馆");
-  assert.equal(snap.address, "潍坊市坊子区六马路美的亚大厦对面");
+  assert.equal(snap.name, "示例菜馆");
+  assert.equal(snap.address, "示例市示例区示例路示例大厦对面");
 });
 
 test("品牌快照逐条带出证据", () => {
@@ -230,26 +230,29 @@ test("品牌快照逐条带出证据", () => {
 /* ---------------- slug 与路径 ---------------- */
 
 test("中文 slug 保留可读性并带区分后缀", () => {
-  const slug = slugifyEntity("海鹏菜馆", "store_358298a5174846a093e79216");
-  assert.ok(slug.startsWith("海鹏菜馆-"));
+  const slug = slugifyEntity("示例菜馆", "store_358298a5174846a093e79216");
+  assert.ok(slug.startsWith("示例菜馆-"));
   assert.equal(slug.endsWith("-store_3582"), true);
 });
 
 test("同名不同实体的 slug 不冲突", () => {
-  const a = slugifyEntity("海鹏菜馆", "store_aaaaaaaaaa");
-  const b = slugifyEntity("海鹏菜馆", "store_bbbbbbbbbb");
+  const a = slugifyEntity("示例菜馆", "store_aaaaaaaaaa");
+  const b = slugifyEntity("示例菜馆", "store_bbbbbbbbbb");
   assert.notEqual(a, b);
 });
 
 test("公开路径按实体类型分开", () => {
   assert.equal(publicPath("store", "x"), "/stores/x");
   assert.equal(publicPath("brand", "y"), "/brands/y");
-  // 中文 slug 需编码，否则 URL 不合法
-  assert.equal(publicPath("store", "海鹏菜馆-abc"), "/stores/%E6%B5%B7%E9%B9%8F%E8%8F%9C%E9%A6%86-abc");
+  // 中文 slug 需编码，否则 URL 不合法。
+  // 期望值动态计算而不是写死编码串 —— 写死会在改名后悄悄失配。
+  const cnSlug = "示例菜馆-abc";
+  assert.equal(publicPath("store", cnSlug), `/stores/${encodeURIComponent(cnSlug)}`);
+  assert.ok(publicPath("store", cnSlug).startsWith("/stores/%"), "非 ASCII slug 必须被编码");
 });
 
 test("中文 slug 的编码与解码往返（漏解码会导致中文页面全部 404）", () => {
-  const slug = "海鹏菜馆-abc";
+  const slug = "示例菜馆-abc";
   const encoded = publicPath("store", slug).slice("/stores/".length);
   assert.ok(encoded.startsWith("%"), encoded);
   assert.equal(decodeSlug(encoded), slug);
@@ -257,7 +260,7 @@ test("中文 slug 的编码与解码往返（漏解码会导致中文页面全�
 
 test("decodeSlug 容忍双重编码与非法编码", () => {
   assert.equal(decodeSlug("plain-slug"), "plain-slug");
-  assert.equal(decodeSlug(encodeURIComponent(encodeURIComponent("海鹏菜馆"))), "海鹏菜馆");
+  assert.equal(decodeSlug(encodeURIComponent(encodeURIComponent("示例菜馆"))), "示例菜馆");
   // 非法百分号序列不应抛错，原样返回即可（查不到自然 404，比 500 好）
   assert.equal(decodeSlug("%E4%B8"), "%E4%B8");
   assert.equal(decodeSlug("%zz"), "%zz");

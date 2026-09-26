@@ -42,7 +42,7 @@ console.log("== 1. 准备已批准事实与来源 ==");
 const brandId = R.createBrand({ name: "样例餐饮", domain: "sample-food.example", description: "A1 渲染验收" });
 const claimId = R.createClaim({
   claimKey: "sample_address",
-  statement: "样例餐饮位于潍坊市坊子区六马路美的亚大厦对面",
+  statement: "样例餐饮位于示例市示例区示例路示例大厦对面",
   category: "address",
 });
 R.addEvidence({

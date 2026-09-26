@@ -34,13 +34,13 @@ import type { StoreSnapshot } from "../src/lib/public-pages.ts";
 function storeSnapshot(over: Partial<StoreSnapshot> = {}): StoreSnapshot {
   return {
     kind: "store",
-    name: "海鹏菜馆",
-    city: "潍坊市",
-    district: "坊子区",
-    address: "六马路 1 号",
+    name: "示例菜馆",
+    city: "示例市",
+    district: "示例区",
+    address: "示例路 1 号",
     category: "餐饮/炒菜",
     serviceRadiusKm: 3,
-    phone: "0536-1234567",
+    phone: "0000-0000000",
     hoursText: "每日 09:00-21:30",
     menuSummary: null,
     priceRange: null,
@@ -48,7 +48,7 @@ function storeSnapshot(over: Partial<StoreSnapshot> = {}): StoreSnapshot {
     accessibility: null,
     statusNote: null,
     facts: [
-      { key: "address", label: "地址", value: "六马路 1 号", sourceKind: "official", sourceUrl: "https://x.example/lic", sourceTitle: "营业执照", verifiedAt: "2026-09-01" },
+      { key: "address", label: "地址", value: "示例路 1 号", sourceKind: "official", sourceUrl: "https://x.example/lic", sourceTitle: "营业执照", verifiedAt: "2026-09-01" },
     ],
     mapLinks: [{ platform: "高德地图", label: "高德地图", url: "https://amap.com/x" }],
     updatedAt: "2026-09-25T00:00:00Z",
@@ -142,7 +142,7 @@ test("JSON-LD 里的 < 被转义，防止提前闭合 script", () => {
 
 test("门店正文含地址/电话/营业时间/来源/地图链接", () => {
   const html = renderStoreBody(storeSnapshot());
-  for (const needle of ["海鹏菜馆", "六马路 1 号", "0536-1234567", "每日 09:00-21:30", "信息来源", "营业执照", "https://amap.com/x"]) {
+  for (const needle of ["示例菜馆", "示例路 1 号", "0000-0000000", "每日 09:00-21:30", "信息来源", "营业执照", "https://amap.com/x"]) {
     assert.ok(html.includes(needle), needle);
   }
 });
@@ -347,12 +347,12 @@ test("内容引用改写保留目录链接的结尾斜杠（丢斜杠会 404）"
 });
 
 test("百分号编码的链接能解析到未编码的中文目录（否则非 ASCII slug 全被误报）", () => {
-  const encoded = `/stores/${encodeURIComponent("海鹏菜馆-store_abc")}/`;
-  assert.deepEqual(resolveReference("index.html", encoded), { kind: "local", path: "stores/海鹏菜馆-store_abc/index.html" });
+  const encoded = `/stores/${encodeURIComponent("示例菜馆-store_abc")}/`;
+  assert.deepEqual(resolveReference("index.html", encoded), { kind: "local", path: "stores/示例菜馆-store_abc/index.html" });
   // 检查器据此判定文件存在
   const files: ExportFile[] = [
     { path: "index.html", content: `<a href="${encoded}">门店</a>` },
-    { path: "stores/海鹏菜馆-store_abc/index.html", content: "<h1>门店</h1>" },
+    { path: "stores/示例菜馆-store_abc/index.html", content: "<h1>门店</h1>" },
   ];
   assert.deepEqual(brokenReferences(files, files.map((f) => f.path)), []);
 });

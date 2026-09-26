@@ -173,7 +173,7 @@ export default function ProtocolsPage() {
           <form action={protocolCreate} className="flex flex-col gap-4">
             <div className="grid gap-3 sm:grid-cols-3">
               <Field label="协议名称" htmlFor="pr-label">
-                <Input id="pr-label" name="label" placeholder="潍坊炒菜 · 基线协议" required />
+                <Input id="pr-label" name="label" placeholder="示例门店 · 基线协议" required />
               </Field>
               <Field label="问题集（仅已冻结）" htmlFor="pr-qs">
                 <select id="pr-qs" name="querySetId" className={SELECT_CLS} required>

@@ -152,7 +152,7 @@ console.log("== 6. 报告页展示三类结果与归因字段 ==");
 const { createSessionToken, COOKIE_NAME } = await import("../src/lib/auth.ts");
 const cookie = `${COOKIE_NAME}=${await createSessionToken()}`;
 const L = await import("../src/lib/db/repo-local.ts");
-const storeId = L.createStore({ name: "归因验收门店", city: "潍坊市" });
+const storeId = L.createStore({ name: "归因验收门店", city: "示例市" });
 
 /** React 在相邻文本节点之间插入 <!-- --> 分隔符，直接子串匹配会漏 */
 const visible = (raw: string) => raw.replace(/<!--.*?-->/g, "");

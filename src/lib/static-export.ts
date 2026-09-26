@@ -139,7 +139,7 @@ export function resolveReference(
   const parts = [...baseDir];
   for (const raw of value.replace(/^\/+/, "").split("/")) {
     // 逐段 URL 解码后再比对文件系统路径：静态服务器会把 URL 解码后再找文件，
-    // 因此 `/stores/%E6%B5%B7…/` 指向的是磁盘上的 `stores/海鹏…/`。
+    // 因此 `/stores/%E4%B8%AD%E6%96%87…/` 指向的是磁盘上的 `stores/中文-slug/`。
     // 不decoding 会把所有非 ASCII slug 的链接误报成失效。
     // 逐段解码（而不是整串解码）可以避免 %2F 被当成路径分隔符。
     let seg = raw;

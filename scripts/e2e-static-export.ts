@@ -86,18 +86,18 @@ const OUT = fs.mkdtempSync(path.join(os.tmpdir(), "static-export-"));
 const ASSETS = fs.mkdtempSync(path.join(os.tmpdir(), "static-assets-"));
 
 /* ---------- 准备：一个已公开门店 / 一个草稿门店 / 一篇已发布文章 ---------- */
-const storeId = L.createStore({ name: "海鹏菜馆", city: "潍坊市", district: "坊子区", address: "六马路 1 号", category: "餐饮/炒菜" });
+const storeId = L.createStore({ name: "示例菜馆", city: "示例市", district: "示例区", address: "示例路 1 号", category: "餐饮/炒菜" });
 L.updateStore(storeId, { status: "active" });
-L.addStoreFact({ storeId, factKey: "name", value: "海鹏菜馆", sourceKind: "official", sourceTitle: "营业执照" });
-L.addStoreFact({ storeId, factKey: "address", value: "六马路 1 号", sourceKind: "official", sourceTitle: "营业执照" });
-L.addStoreFact({ storeId, factKey: "phone", value: "0536-1234567", sourceKind: "official", sourceTitle: "营业执照" });
+L.addStoreFact({ storeId, factKey: "name", value: "示例菜馆", sourceKind: "official", sourceTitle: "营业执照" });
+L.addStoreFact({ storeId, factKey: "address", value: "示例路 1 号", sourceKind: "official", sourceTitle: "营业执照" });
+L.addStoreFact({ storeId, factKey: "phone", value: "0000-0000000", sourceKind: "official", sourceTitle: "营业执照" });
 for (const f of L.listStoreFacts(storeId)) L.verifyStoreFact(f.id, "https://x.example/license");
 L.setStoreHours(storeId, [0, 1, 2, 3, 4, 5, 6].map((weekday) => ({ weekday, closed: false, opens: "09:00", closes: "21:30" })));
 const storePageId = PP.upsertStorePage(storeId);
 PP.publishPage(storePageId);
 
 // 草稿门店：绝不能出现在导出物里
-const draftStoreId = L.createStore({ name: "草稿门店内部代号", city: "潍坊市" });
+const draftStoreId = L.createStore({ name: "草稿门店内部代号", city: "示例市" });
 PP.upsertStorePage(draftStoreId);
 
 // 品牌 + 已发布文章（含一张本地图片，用来验证资源复制）
@@ -117,7 +117,7 @@ const assetId = R.createAsset({
   title: "关于我们门店的说明",
   // 故意包含三类站内引用：图片、指向站点根的链接、指向目录的链接
   bodyMd:
-    "## 结论\n海鹏菜馆是一家主营炒菜的家常餐馆。\n\n![门头照片](assets/img/store.jpg)\n\n" +
+    "## 结论\n示例菜馆是一家主营炒菜的家常餐馆。\n\n![门头照片](assets/img/store.jpg)\n\n" +
     "- [返回首页](/)\n\n## 来源\n- [产能说明](https://brand.example/capacity)",
   claimIds: [claimId],
 });
@@ -155,13 +155,13 @@ const brandRel = brandDirs.length === 1 ? `brands/${brandDirs[0]}/index.html` : 
 
 check("首页已生成", exists("index.html"));
 check("恰好生成 1 个门店页", storeDirs.length === 1, storeDirs.join(","));
-check("门店页目录名带实体后缀（同名不冲突）", !!storeDirs[0] && storeDirs[0].startsWith("海鹏菜馆-"), storeDirs[0]);
+check("门店页目录名带实体后缀（同名不冲突）", !!storeDirs[0] && storeDirs[0].startsWith("示例菜馆-"), storeDirs[0]);
 check("品牌页已生成", brandDirs.length === 1, brandDirs.join(","));
 const knowledgeDirs = fs.existsSync(path.join(OUT, "knowledge")) ? fs.readdirSync(path.join(OUT, "knowledge")) : [];
 check("文章页已生成", knowledgeDirs.length === 1, knowledgeDirs.join(","));
 
 const indexHtml = readFile("index.html");
-check("索引含已公开门店", indexHtml.includes("海鹏菜馆"));
+check("索引含已公开门店", indexHtml.includes("示例菜馆"));
 check("索引不含草稿门店", !indexHtml.includes("草稿门店内部代号"), "草稿内容绝不能出现在导出物里");
 
 const allHtml = (function walk(dir: string): string {
@@ -233,7 +233,7 @@ check("门店页含 JSON-LD", !!ldMatch);
 if (ldMatch) {
   const ld = JSON.parse(ldMatch[1].replace(/\\u003c/g, "<")) as Record<string, unknown>;
   check("JSON-LD 类型为 Restaurant", ld["@type"] === "Restaurant", String(ld["@type"]));
-  check("JSON-LD 名称与页面一致", ld.name === "海鹏菜馆");
+  check("JSON-LD 名称与页面一致", ld.name === "示例菜馆");
 }
 
 console.log("== 7. 清单可核对 ==");

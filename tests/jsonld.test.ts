@@ -35,8 +35,8 @@ function fact(key: string, value: string): RawFact {
 
 function storeSnap(over: Partial<Parameters<typeof buildStoreSnapshot>[0]> = {}) {
   return buildStoreSnapshot({
-    store: { name: "海鹏菜馆", city: "潍坊市", district: "坊子区", address: "六马路 1 号", category: "餐饮/炒菜", service_radius_km: 3, status: "active" },
-    visibleFacts: [fact("name", "海鹏菜馆"), fact("address", "六马路 1 号"), fact("phone", "0536-1234567")],
+    store: { name: "示例菜馆", city: "示例市", district: "示例区", address: "示例路 1 号", category: "餐饮/炒菜", service_radius_km: 3, status: "active" },
+    visibleFacts: [fact("name", "示例菜馆"), fact("address", "示例路 1 号"), fact("phone", "0000-0000000")],
     hoursText: "每日 09:00-21:30",
     mapLinks: [{ platform: "amap", label: "高德地图", url: "https://amap.com/poi/1" }],
     updatedAt: "2026-09-25T00:00:00Z",
@@ -66,17 +66,17 @@ test("不把非餐饮硬套成 Restaurant", () => {
 test("门店结构化数据与页面可见事实一致", () => {
   const ld = storeJsonLd(storeSnap(), CTX);
   assert.equal(ld["@type"], "Restaurant");
-  assert.equal(ld.name, "海鹏菜馆");
+  assert.equal(ld.name, "示例菜馆");
   assert.equal(ld.url, "https://example.com/stores/x");
-  assert.equal(ld.telephone, "0536-1234567");
+  assert.equal(ld.telephone, "0000-0000000");
   assert.equal(ld.openingHours, "每日 09:00-21:30");
-  assert.deepEqual((ld.address as Record<string, unknown>).streetAddress, "六马路 1 号");
+  assert.deepEqual((ld.address as Record<string, unknown>).streetAddress, "示例路 1 号");
   assert.deepEqual(ld.sameAs, ["https://amap.com/poi/1"]);
 });
 
 test("缺电话/价格时字段直接不出现（不能补造）", () => {
   const ld = storeJsonLd(
-    storeSnap({ visibleFacts: [fact("name", "海鹏菜馆"), fact("address", "六马路 1 号")] }),
+    storeSnap({ visibleFacts: [fact("name", "示例菜馆"), fact("address", "示例路 1 号")] }),
     CTX,
   );
   assert.ok(!("telephone" in ld), JSON.stringify(ld));
@@ -93,7 +93,7 @@ test("没有任何评分/奖项字段（本平台不采集，也不得编造）"
 
 test("服务范围为空时不写 areaServed", () => {
   const ld = storeJsonLd(
-    storeSnap({ store: { name: "海鹏菜馆", city: null, district: null, address: "x", category: "餐饮", service_radius_km: null, status: "active" } }),
+    storeSnap({ store: { name: "示例菜馆", city: null, district: null, address: "x", category: "餐饮", service_radius_km: null, status: "active" } }),
     CTX,
   );
   assert.ok(!("areaServed" in ld));
@@ -102,8 +102,8 @@ test("服务范围为空时不写 areaServed", () => {
 test("地址全空时不输出空的 PostalAddress", () => {
   const ld = storeJsonLd(
     storeSnap({
-      store: { name: "海鹏菜馆", city: null, district: null, address: null, category: null, service_radius_km: null, status: "active" },
-      visibleFacts: [fact("name", "海鹏菜馆")],
+      store: { name: "示例菜馆", city: null, district: null, address: null, category: null, service_radius_km: null, status: "active" },
+      visibleFacts: [fact("name", "示例菜馆")],
     }),
     CTX,
   );
@@ -113,7 +113,7 @@ test("地址全空时不输出空的 PostalAddress", () => {
 test("门店一致性问题能被检出（结构化数据里写了页面看不到的字段）", () => {
   const ld = storeJsonLd(storeSnap(), CTX);
   const issues = checkJsonLdConsistency(ld, {
-    text: "海鹏菜馆 六马路 1 号 每日 09:00-21:30 0536-1234567",
+    text: "示例菜馆 示例路 1 号 每日 09:00-21:30 0000-0000000",
     links: ["https://amap.com/poi/1"], // 链接在 href 里，不在文字里
   });
   assert.deepEqual(issues, []);
@@ -121,7 +121,7 @@ test("门店一致性问题能被检出（结构化数据里写了页面看不�
 
 test("页面缺少该字段时被判定为不一致", () => {
   const ld = storeJsonLd(storeSnap(), CTX);
-  const issues = checkJsonLdConsistency(ld, { text: "海鹏菜馆 六马路 1 号" });
+  const issues = checkJsonLdConsistency(ld, { text: "示例菜馆 示例路 1 号" });
   assert.ok(issues.some((i) => i.field === "telephone"), JSON.stringify(issues));
   assert.ok(issues.some((i) => i.field === "openingHours"));
 });
@@ -220,15 +220,15 @@ test("结构化数据不得出现页面上没有的字样（如硬编码的国�
   const json = JSON.stringify(ld);
   // 页面上没有「CN」这个字符串，就不该出现在结构化数据里
   assert.ok(!json.includes('"CN"'), json);
-  const visible = { text: "海鹏菜馆 潍坊市 坊子区 六马路 1 号 每日 09:00-21:30 0536-1234567", links: ["https://amap.com/poi/1"] };
+  const visible = { text: "示例菜馆 示例市 示例区 示例路 1 号 每日 09:00-21:30 0000-0000000", links: ["https://amap.com/poi/1"] };
   assert.deepEqual(checkJsonLdConsistency(ld, visible), []);
 });
 
 test("链接类字段允许出现在 href 属性里（只查文本会误报）", () => {
   const ld = storeJsonLd(storeSnap(), CTX);
-  const withLinks = checkJsonLdConsistency(ld, { text: "海鹏菜馆 六马路 1 号 每日 09:00-21:30 0536-1234567", links: ["https://amap.com/poi/1"] });
+  const withLinks = checkJsonLdConsistency(ld, { text: "示例菜馆 示例路 1 号 每日 09:00-21:30 0000-0000000", links: ["https://amap.com/poi/1"] });
   assert.deepEqual(withLinks.filter((i) => i.field === "sameAs"), []);
   // 链接既不在文本也不在 links 里，才是真的不一致
-  const missing = checkJsonLdConsistency(ld, { text: "海鹏菜馆 六马路 1 号 每日 09:00-21:30 0536-1234567" });
+  const missing = checkJsonLdConsistency(ld, { text: "示例菜馆 示例路 1 号 每日 09:00-21:30 0000-0000000" });
   assert.ok(missing.some((i) => i.field === "sameAs"));
 });

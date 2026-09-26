@@ -51,7 +51,7 @@ const brandId = R.createBrand({ name: "协议验收品牌", domain: "proto.examp
 const qsId = R.createQuerySet("协议验收问题集", brandId);
 const questions = [
   { text: "协议验收品牌 是什么？", category: "branded_awareness" },
-  { text: "潍坊有什么好吃的炒菜馆？", category: "unbranded_recommendation" },
+  { text: "示例有什么好吃的炒菜馆？", category: "unbranded_recommendation" },
   { text: "三个人吃炒菜人均 60 去哪家？", category: "comparison_scenario" },
 ];
 R.addQuestions(qsId, questions.map((q) => q.text));

@@ -21,7 +21,7 @@ export const QUESTION_CATEGORIES = [
   {
     value: "unbranded_recommendation",
     label: "推荐题（不带品牌名）",
-    description: "只描述需求，不提任何品牌，例如「潍坊有什么好吃的炒菜馆」。这一类才反映能否被推荐。",
+    description: "只描述需求，不提任何品牌，例如「附近有什么好吃的川菜馆」。这一类才反映能否被推荐。",
     mentionIsTrivial: false,
     countsTowardRecommendation: true,
   },

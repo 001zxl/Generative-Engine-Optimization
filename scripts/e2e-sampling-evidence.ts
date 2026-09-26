@@ -164,7 +164,7 @@ check("夹具数据不可计入", !fixture.countable && fixture.blockers.some((b
 console.log("== 8. 报告页面标记证据判定 ==");
 const { createSessionToken, COOKIE_NAME } = await import("../src/lib/auth.ts");
 const cookie = `${COOKIE_NAME}=${await createSessionToken()}`;
-const storeId = (await import("../src/lib/db/repo-local.ts")).createStore({ name: "证据验收门店", city: "潍坊市" });
+const storeId = (await import("../src/lib/db/repo-local.ts")).createStore({ name: "证据验收门店", city: "示例市" });
 const res = await fetch(`${BASE}/console/geo-report?store=${storeId}`, { headers: { cookie } });
 const html = await res.text();
 check("报告页 200", res.status === 200, `HTTP ${res.status}`);

@@ -50,9 +50,9 @@ const check = (name: string, cond: boolean, detail = "") => {
 /* ---------- 准备数据 ---------- */
 const storeId = L.createStore({
   name: "公开页测试门店",
-  city: "潍坊市",
-  district: "坊子区",
-  address: "六马路 1 号",
+  city: "示例市",
+  district: "示例区",
+  address: "示例路 1 号",
   category: "餐饮/炒菜",
   lat: 36.6,
   lng: 119.1,
@@ -61,8 +61,8 @@ const storeId = L.createStore({
 // 这正是发布检查的第一道闸
 L.updateStore(storeId, { status: "active" });
 L.addStoreFact({ storeId, factKey: "name", value: "公开页测试门店", sourceKind: "official", sourceTitle: "营业执照" });
-L.addStoreFact({ storeId, factKey: "address", value: "六马路 1 号", sourceKind: "official", sourceTitle: "营业执照" });
-L.addStoreFact({ storeId, factKey: "phone", value: "0536-1234567", sourceKind: "official", sourceTitle: "营业执照" });
+L.addStoreFact({ storeId, factKey: "address", value: "示例路 1 号", sourceKind: "official", sourceTitle: "营业执照" });
+L.addStoreFact({ storeId, factKey: "phone", value: "0000-0000000", sourceKind: "official", sourceTitle: "营业执照" });
 for (const f of L.listStoreFacts(storeId)) L.verifyStoreFact(f.id, "https://example.com/license");
 // 内部备注类事实，不应公开
 L.addStoreFact({ storeId, factKey: "status_note", value: "内部备注：出餐慢", sourceKind: "self", sourceTitle: "内部" });
@@ -102,8 +102,8 @@ res = await fetch(`${BASE}${publicPath("store", slug)}`);
 const html = await res.text();
 check("已公开页返回 200", res.status === 200, `HTTP ${res.status}`);
 check("页面显示店名", html.includes("公开页测试门店"));
-check("页面显示地址", html.includes("六马路 1 号"));
-check("页面显示电话", html.includes("0536-1234567"));
+check("页面显示地址", html.includes("示例路 1 号"));
+check("页面显示电话", html.includes("0000-0000000"));
 check("页面显示营业时间", html.includes("09:00-21:30"));
 check("页面显示地图资料链接", html.includes("https://amap.com/poi/x"));
 check("页面标注信息来源", html.includes("营业执照") && html.includes("信息来源"));
@@ -127,10 +127,10 @@ if (ldMatch) {
 check("JSON-LD 可解析", Object.keys(ld).length > 0);
 check("门店用 Restaurant（餐饮类）", ld["@type"] === "Restaurant", String(ld["@type"]));
 check("JSON-LD 名称为页面店名", ld.name === "公开页测试门店", String(ld.name));
-check("JSON-LD 电话与页面一致", ld.telephone === "0536-1234567", String(ld.telephone));
+check("JSON-LD 电话与页面一致", ld.telephone === "0000-0000000", String(ld.telephone));
 check(
   "JSON-LD 地址与页面一致",
-  (ld.address as Record<string, unknown> | undefined)?.streetAddress === "六马路 1 号",
+  (ld.address as Record<string, unknown> | undefined)?.streetAddress === "示例路 1 号",
   JSON.stringify(ld.address),
 );
 check(
@@ -204,7 +204,7 @@ check("改资料后已发布快照未变", JSON.stringify(before) === JSON.strin
 check("预览能看出资料已变动（drift）", PP.previewBrandPage(brandId).drift === true);
 
 console.log("== 10. 不合格内容不能被公开 ==");
-const badStore = L.createStore({ name: "缺资料门店", city: "潍坊市", status: "unverified" });
+const badStore = L.createStore({ name: "缺资料门店", city: "示例市", status: "unverified" });
 const badId = PP.upsertStorePage(badStore);
 let threw = false;
 try {

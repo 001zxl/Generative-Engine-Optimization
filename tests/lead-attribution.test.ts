@@ -83,7 +83,7 @@ test("信息齐全时 complete 为真且没有未知项", () => {
       selfReportedSource: "朋友推荐",
       firstTouchJson: JSON.stringify({ referrer: "https://google.com", landingPath: "/r/abc", utm: { utm_medium: "organic" } }),
       contentTitle: "某篇文章",
-      storeName: "海鹏菜馆",
+      storeName: "示例菜馆",
     }),
   );
   assert.equal(a.complete, true, JSON.stringify(a.unknown));
