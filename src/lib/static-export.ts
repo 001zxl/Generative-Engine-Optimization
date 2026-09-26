@@ -92,17 +92,139 @@ export function scanExportSafety(files: ExportFile[]): SafetyFinding[] {
  * 资源引用
  * ------------------------------------------------------------------ */
 
-/** 从 HTML 里取出全部站内资源引用（img src / link href），供存在性检查 */
-export function referencedAssets(files: ExportFile[]): string[] {
-  const out = new Set<string>();
+/* ------------------------------------------------------------------ *
+ * 引用解析：从「这个页面」出发，这条引用到底指向哪个文件
+ *
+ * 这是整个导出最容易出错、也最容易被测试漏掉的地方。
+ * 只检查「文件存在」和「页面里有这条引用」是不够的 ——
+ * 页面在几层目录里，决定了同一个字符串会解析到不同的文件。
+ * 例如位于 stores/<slug>/index.html 的页面写 `../style.css`，
+ * 解析结果是 stores/style.css，而文件其实在站点根目录。
+ * ------------------------------------------------------------------ */
+
+/** 输出文件所在的目录层数：`index.html` = 0，`stores/x/index.html` = 2 */
+export function pageDepth(filePath: string): number {
+  const parts = filePath.split("/").filter(Boolean);
+  return Math.max(0, parts.length - 1);
+}
+
+/** 从该层数的页面回到站点根所需的相对前缀 */
+export function relativePrefix(depth: number): string {
+  return "../".repeat(Math.max(0, depth));
+}
+
+/**
+ * 把一条引用解析成「输出目录内的相对路径」。
+ *
+ * 返回：
+ *  - `{ kind: "external" }` 外链、锚点、协议相对地址 —— 不检查
+ *  - `{ kind: "local", path }` 站内引用，path 为归一化后的输出路径
+ *  - `{ kind: "escape" }` 逃出站点根目录 —— 视为错误
+ *
+ * 同时支持以 `/` 开头的「根绝对」引用：在导出物里把它当作相对站点根处理，
+ * 这样上传到子路径（如 GitHub Pages 项目站 https://user.github.io/repo/）
+ * 也不会失效 —— 纯 `/xxx` 只在域名根目录部署时才正确。
+ */
+export function resolveReference(
+  fromFile: string,
+  ref: string,
+): { kind: "external" } | { kind: "escape"; ref: string } | { kind: "local"; path: string } {
+  const value = ref.trim();
+  if (!value) return { kind: "external" };
+  if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(value) || value.startsWith("//")) return { kind: "external" };
+  if (value.startsWith("#")) return { kind: "external" };
+
+  const isRooted = value.startsWith("/");
+  const baseDir = isRooted ? [] : fromFile.split("/").slice(0, -1);
+  const parts = [...baseDir];
+  for (const raw of value.replace(/^\/+/, "").split("/")) {
+    // 逐段 URL 解码后再比对文件系统路径：静态服务器会把 URL 解码后再找文件，
+    // 因此 `/stores/%E6%B5%B7…/` 指向的是磁盘上的 `stores/海鹏…/`。
+    // 不decoding 会把所有非 ASCII slug 的链接误报成失效。
+    // 逐段解码（而不是整串解码）可以避免 %2F 被当成路径分隔符。
+    let seg = raw;
+    // 含编码斜杠的段不解码：`a%2Fb.html` 在静态服务器上不会变成两级路径，
+    // 解码后反而会凭空多出一层、可能匹配到不该匹配的文件
+    const hasEncodedSeparator = /%2f|%5c/i.test(seg);
+    if (seg.includes("%") && !hasEncodedSeparator) {
+      try {
+        seg = decodeURIComponent(seg);
+      } catch {
+        // 非法编码：保持原样，让它自然匹配不上
+      }
+    }
+    if (!seg || seg === ".") continue;
+    if (seg === "..") {
+      if (parts.length === 0) return { kind: "escape", ref: value };
+      parts.pop();
+      continue;
+    }
+    parts.push(seg);
+  }
+  // 指向站点根：`/`、`./`、`../../` 这类目录引用实际打开的是根 index.html
+  if (parts.length === 0) return { kind: "local", path: "index.html" };
+  const path = parts.join("/");
+  // 目录式链接（以 / 结尾）补上 index.html，才能判断文件是否存在
+  return { kind: "local", path: value.endsWith("/") ? `${path}/index.html` : path };
+}
+
+export interface Reference {
+  /** 引用所在页面 */
+  from: string;
+  /** 引用种类，便于定位问题 */
+  kind: "stylesheet" | "image" | "link";
+  /** 页面里写的原始引用 */
+  ref: string;
+  /** 解析结果 */
+  resolved: string | null;
+  ok: boolean;
+  reason?: string;
+}
+
+const REFERENCE_PATTERNS: Array<{ kind: Reference["kind"]; re: RegExp }> = [
+  { kind: "stylesheet", re: /<link[^>]+rel="stylesheet"[^>]*href="([^"]+)"/g },
+  { kind: "image", re: /<img[^>]+src="([^"]+)"/g },
+  { kind: "link", re: /<a[^>]+href="([^"]+)"/g },
+];
+
+/**
+ * 抽出每个页面里的站内引用，并解析出它应该指向哪个文件。
+ *
+ * 只看「页面里有没有这个字符串」是不够的：同一个字符串在不同层数的页面里
+ * 指向不同文件。所以这里必须带上 from 与解析后的路径。
+ */
+export function collectReferences(files: ExportFile[], existingPaths: string[]): Reference[] {
+  const have = new Set(existingPaths.map((p) => p.replace(/^\/+/, "")));
+  const out: Reference[] = [];
   for (const file of files) {
     if (!file.path.endsWith(".html")) continue;
-    for (const m of file.content.matchAll(/<img[^>]+src="([^"]+)"/g)) {
-      const src = m[1];
-      if (!/^https?:|^\/\//i.test(src)) out.add(src.replace(/^\//, ""));
+    for (const { kind, re } of REFERENCE_PATTERNS) {
+      for (const m of file.content.matchAll(re)) {
+        const ref = m[1];
+        const resolved = resolveReference(file.path, ref);
+        if (resolved.kind === "external") continue;
+        if (resolved.kind === "escape") {
+          out.push({ from: file.path, kind, ref, resolved: null, ok: false, reason: "引用逃出了站点根目录" });
+          continue;
+        }
+        const ok = have.has(resolved.path);
+        out.push({
+          from: file.path,
+          kind,
+          ref,
+          resolved: resolved.path,
+          ok,
+          reason: ok ? undefined : `解析为 ${resolved.path}，但输出目录里没有这个文件`,
+        });
+      }
     }
   }
-  return [...out];
+  return out;
+}
+
+/** 只返回解析不到的引用（导出前必须为空，否则上传后就是 404 / 裂图 / 丢样式） */
+export function brokenReferences(files: ExportFile[], existingPaths: string[]): Reference[] {
+  return collectReferences(files, existingPaths).filter((r) => !r.ok);
 }
 
 export interface AssetCheckResult {
@@ -110,12 +232,20 @@ export interface AssetCheckResult {
   unused: string[];
 }
 
-/** 校验每个被引用的站内资源都真实存在；同时指出未被引用的资源（可能是不必要上传） */
+/**
+ * 资源检查。
+ *
+ * `missing` 现在基于**解析后的路径**判断，而不是字符串比对 ——
+ * 后者曾经让「文章里写 assets/img/x.jpg、文件在站点根 assets/img/x.jpg」
+ * 这种明显错误的引用通过检查。
+ */
 export function checkAssets(files: ExportFile[], assetPaths: string[]): AssetCheckResult {
-  const have = new Set(assetPaths.map((p) => p.replace(/^\//, "")));
-  const referenced = referencedAssets(files);
-  const missing = referenced.filter((r) => !have.has(r));
-  const unused = [...have].filter((p) => !referenced.includes(p));
+  const allPaths = [...files.map((f) => f.path), ...assetPaths.map((p) => `assets/${p.replace(/^\/+/, "")}`)];
+  const missing = brokenReferences(files, allPaths)
+    .filter((r) => r.kind === "image")
+    .map((r) => `${r.from} 里的 ${r.ref}（${r.reason ?? "无法解析"}）`);
+  const referenced = new Set(collectReferences(files, allPaths).filter((r) => r.kind === "image").map((r) => r.resolved));
+  const unused = assetPaths.map((p) => `assets/${p.replace(/^\/+/, "")}`).filter((p) => !referenced.has(p));
   return { missing, unused };
 }
 
@@ -163,8 +293,14 @@ export interface DocumentInput {
   canonicalPath: string;
   bodyHtml: string;
   jsonLd?: unknown;
-  /** 站点根相对深度，用于静态资源前缀；首页为 ""，二级页为 "../" */
-  assetPrefix: string;
+  /**
+   * 页面在输出目录里的层数：`index.html` = 0，`stores/x/index.html` = 2。
+   *
+   * 由层数推导前缀，而不是让调用方手写 `"../"` —— 手写会错
+   * （曾经门店页与品牌页写成了 `"../"`，而它们在两层目录里，
+   * 结果样式表解析到 stores/style.css，页面上没有样式）。
+   */
+  depth: number;
 }
 
 /** 生成完整 HTML 文档。所有文本都经过转义，不存在原始 HTML 直通路径。 */
@@ -178,7 +314,7 @@ export function renderDocument(input: DocumentInput): string {
 <title>${escapeHtmlText(input.title)}</title>
 <meta name="description" content="${escapeHtmlText(input.description)}">
 <link rel="canonical" href="${escapeHtmlText(input.canonicalPath)}">
-<link rel="stylesheet" href="${input.assetPrefix}style.css">
+<link rel="stylesheet" href="${relativePrefix(input.depth)}style.css">
 ${ld}
 </head>
 <body>
@@ -228,7 +364,7 @@ export interface RenderedPage {
 }
 
 /** 门店页正文 */
-export function renderStoreBody(store: Extract<PublicSnapshot, { kind: "store" }>): string {
+export function renderStoreBody(store: Extract<PublicSnapshot, { kind: "store" }>, depth = 2): string {
   const rows: string[] = [];
   const row = (label: string, value: string | number | null | undefined) =>
     value === null || value === undefined || value === "" ? "" : `<div><div class="meta">${label}</div><div>${escapeHtmlText(String(value))}</div></div>`;
@@ -263,7 +399,7 @@ export function renderStoreBody(store: Extract<PublicSnapshot, { kind: "store" }
         .join("")}</ul>`
     : "";
 
-  return `<div class="crumb"><a href="../">← 返回全部</a></div>
+  return `<div class="crumb"><a href="${relativePrefix(depth) || "./"}">← 返回全部</a></div>
 <h1>${escapeHtmlText(store.name)}</h1>
 <p class="meta">${escapeHtmlText([store.city, store.district].filter(Boolean).join(" "))}${
     store.category ? ` · ${escapeHtmlText(store.category)}` : ""
@@ -275,7 +411,7 @@ ${mapLinks}${facts}`;
 }
 
 /** 品牌页正文 */
-export function renderBrandBody(brand: Extract<PublicSnapshot, { kind: "brand" }>): string {
+export function renderBrandBody(brand: Extract<PublicSnapshot, { kind: "brand" }>, depth = 2): string {
   const claims = brand.claims
     .map(
       (c) =>
@@ -290,7 +426,7 @@ export function renderBrandBody(brand: Extract<PublicSnapshot, { kind: "brand" }
     )
     .join("");
 
-  return `<div class="crumb"><a href="../">← 返回全部</a></div>
+  return `<div class="crumb"><a href="${relativePrefix(depth) || "./"}">← 返回全部</a></div>
 <h1>${escapeHtmlText(brand.name)}</h1>
 ${brand.description ? `<p>${escapeHtmlText(brand.description)}</p>` : ""}
 <p class="meta">本页内容最后更新于 ${escapeHtmlText(brand.updatedAt.slice(0, 10))}</p>
@@ -302,6 +438,45 @@ ${
 <h2>可核验的信息</h2>
 <p class="meta">以下每一条都绑定了来源。未提供来源的说法不会出现在本页。</p>
 <div class="stack">${claims}</div>`;
+}
+
+/**
+ * 把内容里的站内引用改写成「从本页出发」的相对路径。
+ *
+ * 约定：**正文里的站内引用一律按站点根书写**（`assets/img/x.jpg`、`/knowledge/y/`）。
+ * 导出时按页面层数转成相对路径，而不是直接输出 `/assets/...` ——
+ * 后者只在部署到域名根目录时正确；GitHub Pages 的项目站是
+ * `https://user.github.io/repo/`，`/assets/...` 会指向域名根而 404。
+ *
+ * 外链、锚点、`data:` 一律不动。
+ */
+export function rewriteLocalRefs(html: string, depth: number): string {
+  const prefix = relativePrefix(depth);
+  return html.replace(/(\s(?:src|href))="([^"]*)"/g, (whole, attr: string, value: string) => {
+    const v = value.trim();
+    if (!v || v.startsWith("#") || v.startsWith("//")) return whole;
+    if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(v)) return whole; // http(s)/mailto/data 等
+    // 按站点根归一化；逃出根目录的引用保持原样，交给引用检查报错
+    const parts: string[] = [];
+    let escaped = false;
+    for (const seg of v.replace(/^\/+/, "").split("/")) {
+      if (!seg || seg === ".") continue;
+      if (seg === "..") {
+        if (parts.length === 0) {
+          escaped = true;
+          break;
+        }
+        parts.pop();
+        continue;
+      }
+      parts.push(seg);
+    }
+    if (escaped || parts.length === 0) return whole;
+    // 目录链接必须保留结尾斜杠：`knowledge/b/` 打开的是 knowledge/b/index.html，
+    // 丢掉斜杠后静态托管可能不给你重定向，直接 404
+    const trailing = v.endsWith("/") ? "/" : "";
+    return `${attr}="${prefix}${parts.join("/")}${trailing}"`;
+  });
 }
 
 /* ------------------------------------------------------------------ *

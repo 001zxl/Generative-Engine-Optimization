@@ -19,7 +19,10 @@ import path from "node:path";
 import crypto from "node:crypto";
 import {
   EXPORT_CSS,
+  brokenReferences,
   checkAssets,
+  pageDepth,
+  rewriteLocalRefs,
   normalizeExportBaseUrl,
   renderBrandBody,
   renderDocument,
@@ -78,8 +81,10 @@ const pages = collectPublishedPages();
 const articles = collectPublishedArticles();
 
 for (const page of pages) {
-  const prefix = "../";
   const dir = page.entityType === "store" ? "stores" : "brands";
+  const outputPath = `${dir}/${page.slug}/index.html`;
+  // 层数由输出路径推导，不手写前缀 —— 手写错过一次（门店/品牌页写成 "../"）
+  const depth = pageDepth(outputPath);
   const urlPath = `/${dir}/${encodeURIComponent(page.slug)}/`;
 
   // 按 kind 分支而不是先存成 boolean —— 后者会让类型收窄失效
@@ -95,18 +100,18 @@ for (const page of pages) {
       .filter(Boolean)
       .join(" · ")
       .slice(0, 160);
-    bodyHtml = renderStoreBody(store);
+    bodyHtml = renderStoreBody(store, depth);
     jsonLd = storeJsonLd(store, { baseUrl, path: urlPath });
   } else {
     const brand = page.snapshot;
     title = brand.name;
     description = (brand.description?.trim() || `${brand.name} 的可核验信息`).slice(0, 160);
-    bodyHtml = renderBrandBody(brand);
+    bodyHtml = renderBrandBody(brand, depth);
     jsonLd = brandJsonLd(brand, { baseUrl, path: urlPath });
   }
 
   files.push({
-    path: `${dir}/${page.slug}/index.html`,
+    path: outputPath,
     content: renderDocument({
       siteName,
       title,
@@ -114,7 +119,7 @@ for (const page of pages) {
       canonicalPath: siteUrl(baseUrl, urlPath),
       bodyHtml,
       jsonLd,
-      assetPrefix: prefix,
+      depth,
     }),
   });
   indexEntries.push({ url: urlPath, title, summary: description, kind: page.entityType });
@@ -122,10 +127,12 @@ for (const page of pages) {
 }
 
 for (const article of articles) {
+  const outputPath = `knowledge/${article.slug}/index.html`;
+  const depth = pageDepth(outputPath);
   const urlPath = `/knowledge/${encodeURIComponent(article.slug)}/`;
   const bodyHtml = `<div class="crumb"><a href="../../">← 返回全部</a></div><h1>${article.title.replace(/[<>&"]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;" })[c]!)}</h1>
 <p class="meta">作者：${article.author} · 发布于 ${article.publishedAt.slice(0, 10)}</p>
-${markdownToHtml(article.body)}
+${rewriteLocalRefs(markdownToHtml(article.body), depth)}
 ${
   article.evidences.length
     ? `<h2>证据与参考来源</h2><ul class="sources">${article.evidences
@@ -144,9 +151,9 @@ ${
       { title: article.title, body: article.body, author: article.author, publishedAt: article.publishedAt, url: siteUrl(baseUrl, urlPath), description, citations: article.evidences.map((e) => e.url) },
       { baseUrl, path: urlPath },
     ),
-    assetPrefix: "../../",
+    depth,
   });
-  files.push({ path: `knowledge/${article.slug}/index.html`, content: html });
+  files.push({ path: outputPath, content: html });
   indexEntries.push({ url: urlPath, title: article.title, summary: description, kind: "article" });
   sitemapEntries.push({ url: siteUrl(baseUrl, urlPath), lastModified: article.publishedAt });
 }
@@ -159,8 +166,11 @@ files.push({
     title: siteName,
     description: `${siteName}：经审核公开的门店、品牌与内容，信息均标注来源。`,
     canonicalPath: siteUrl(baseUrl, "/"),
-    bodyHtml: renderIndexBody(siteName, indexEntries),
-    assetPrefix: "",
+    // 索引页的内部链接也要转成相对路径：条目的是 `/stores/x/` 这种根绝对路径，
+    // 部署到子路径（GitHub Pages 项目站 https://user.github.io/repo/）会 404。
+    // 层数为 0，所以改写结果就是去掉开头的 `/`。
+    bodyHtml: rewriteLocalRefs(renderIndexBody(siteName, indexEntries), 0),
+    depth: 0,
   }),
 });
 
@@ -204,16 +214,24 @@ if (blockers.length > 0) {
 
 // 资源会被复制到输出目录的 assets/ 下，所以校验时要用产物路径而不是源目录路径。
 // 正文里应引用 `assets/xxx`（相对站点根），否则上传后就是裂图。
-const assetCheck = checkAssets(files, assetPaths.map((p) => `assets/${p}`));
-if (assetCheck.missing.length > 0) {
-  console.error(`\n[export] 拒绝产出：以下站内资源被引用但不存在，上传后会是裂图：`);
-  for (const m of assetCheck.missing) console.error(`  · ${m}`);
+// 引用检查：逐个页面解析每个站内引用，看它到底指向哪个文件、文件在不在。
+// 只检查「文件存在」+「页面包含这个字符串」是不够的 ——
+// 同一个字符串在不同层数的页面里指向不同文件，样式表与返回链接都踩过这个坑。
+const allOutputPaths = [...files.map((f) => f.path), ...assetPaths.map((p) => `assets/${p}`)];
+const broken = brokenReferences(files, allOutputPaths);
+if (broken.length > 0) {
+  console.error(`\n[export] 拒绝产出：有 ${broken.length} 处引用在该页面里找不到目标文件，上传后会是 404 / 裂图 / 丢样式：`);
+  for (const r of broken) {
+    console.error(`  · ${r.from} 的 ${r.kind}「${r.ref}」→ ${r.reason ?? "无法解析"}`);
+  }
   console.error(
-    "资源约定：--assets 目录下的文件会被复制到输出目录的 assets/ 下，" +
-      "因此正文里应写成 `assets/相对路径`（例如 assets/img/store.jpg）。",
+    "约定：正文与页面里的站内引用一律按站点根书写（assets/img/x.jpg、/knowledge/y/），" +
+      "导出时会按页面层数转成相对路径；--assets 目录的内容会复制到输出目录的 assets/ 下。",
   );
   process.exit(1);
 }
+
+const assetCheck = checkAssets(files, assetPaths);
 if (assetCheck.unused.length > 0) {
   console.warn(`[export] ⚠️  ${assetCheck.unused.length} 个资源没有被任何页面引用：${assetCheck.unused.slice(0, 5).join("、")}`);
 }

@@ -40,6 +40,43 @@ const check = (name: string, cond: boolean, detail = "") => {
   }
 };
 
+/** 极简静态服务器：按静态托管的实际行为提供文件（目录自动找 index.html） */
+async function serveStatic(dir: string, opts: { mountAt?: string } = {}): Promise<{ port: number; close: () => void }> {
+  const http = await import("node:http");
+  const mount = opts.mountAt ?? "/";
+  const server = http.createServer((req, res) => {
+    try {
+      const url = new URL(req.url ?? "/", "http://localhost");
+      let pathname = decodeURIComponent(url.pathname);
+      if (!pathname.startsWith(mount)) {
+        res.writeHead(404).end("not mounted");
+        return;
+      }
+      let rel = pathname.slice(mount.length);
+      if (rel.endsWith("/") || rel === "") rel += "index.html";
+      const target = path.join(dir, rel);
+      // 防目录穿越
+      if (!path.resolve(target).startsWith(path.resolve(dir))) {
+        res.writeHead(403).end("forbidden");
+        return;
+      }
+      if (!fs.existsSync(target) || fs.statSync(target).isDirectory()) {
+        res.writeHead(404).end("not found");
+        return;
+      }
+      const body = fs.readFileSync(target);
+      const type = target.endsWith(".css") ? "text/css" : target.endsWith(".html") ? "text/html; charset=utf-8" : target.endsWith(".xml") ? "application/xml" : target.endsWith(".jpg") ? "image/jpeg" : "application/octet-stream";
+      res.writeHead(200, { "content-type": type }).end(body);
+    } catch {
+      res.writeHead(500).end("error");
+    }
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const addr = server.address();
+  const port = typeof addr === "object" && addr ? addr.port : 0;
+  return { port, close: () => server.close() };
+}
+
 const L = await import("../src/lib/db/repo-local.ts");
 const R = await import("../src/lib/db/repo-domains.ts");
 const PP = await import("../src/lib/db/repo-public.ts");
@@ -202,7 +239,69 @@ check("清单记录域名", manifest.baseUrl === BASE, manifest.baseUrl);
 check("清单含全部 HTML", manifest.files.filter((f) => f.path.endsWith(".html")).length === 4, `${manifest.files.length} 个文件`);
 check("清单有哈希", manifest.files.every((f) => f.sha256.length === 16));
 
-console.log("== 8. 没有域名时必须拒绝导出 ==");
+console.log("== 8. 按浏览器的方式验证：从每个页面出发，每条引用都能取到文件 ==");
+// 前面检查的是「文件在磁盘上」+「页面里有这条引用」。
+// 这两件事都成立，页面依然可能是坏的 —— 同一个字符串在不同层数的页面里
+// 指向不同文件（样式表、返回链接、文章图片都踩过这个坑）。
+// 所以这里把导出目录用静态服务器跑起来，按浏览器的方式逐条请求。
+const served = await serveStatic(OUT);
+const rootUrl = `http://127.0.0.1:${served.port}/`;
+
+const htmlFiles = (function walkHtml(dir: string, rel = ""): string[] {
+  const out: string[] = [];
+  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+    const next = rel ? `${rel}/${e.name}` : e.name;
+    if (e.isDirectory()) out.push(...walkHtml(path.join(dir, e.name), next));
+    else if (e.name.endsWith(".html")) out.push(next);
+  }
+  return out;
+})(OUT);
+
+interface RefCheck { page: string; ref: string; status: number; url: string }
+const refResults: RefCheck[] = [];
+for (const page of htmlFiles) {
+  const pageUrl = new URL(page.split("/").map(encodeURIComponent).join("/"), rootUrl).toString();
+  const res = await fetch(pageUrl);
+  check(`页面可访问：${page}`, res.status === 200, `HTTP ${res.status} ${pageUrl}`);
+  const html = await res.text();
+  const refs: Array<{ ref: string; attr: string }> = [];
+  for (const m of html.matchAll(/<link[^>]+rel="stylesheet"[^>]*href="([^"]+)"/g)) refs.push({ ref: m[1], attr: "stylesheet" });
+  for (const m of html.matchAll(/<img[^>]+src="([^"]+)"/g)) refs.push({ ref: m[1], attr: "image" });
+  for (const m of html.matchAll(/<a[^>]+href="([^"]+)"/g)) refs.push({ ref: m[1], attr: "link" });
+  for (const { ref, attr } of refs) {
+    if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(ref) || ref.startsWith("#")) continue;
+    // 浏览器就是这样解析的：相对当前页面 URL
+    const target = new URL(ref, pageUrl);
+    if (new URL(target).origin !== new URL(rootUrl).origin) continue;
+    const r = await fetch(target, { redirect: "follow" });
+    refResults.push({ page, ref, status: r.status, url: target.toString() });
+    check(`  ${attr} 可取：${page} → ${ref}`, r.status === 200, `HTTP ${r.status} ${target.pathname}`);
+  }
+}
+check("至少检查了 3 类引用（样式表 / 图片 / 链接）", new Set(refResults.map((r) => r.ref)).size >= 3, `${refResults.length} 条`);
+
+console.log("== 9. 子路径部署也要能用（GitHub Pages 项目站）==");
+// 项目站地址形如 https://user.github.io/repo/ —— 站点不在域名根目录。
+// 用相对路径就是为了这种场景；根绝对路径（/style.css）在这里会 404。
+const sub = await serveStatic(OUT, { mountAt: "/site/" });
+const subBase = `http://127.0.0.1:${sub.port}/site/`;
+for (const page of ["index.html", "stores/" + storeDirs[0] + "/index.html", "knowledge/" + knowledgeDirs[0] + "/index.html"]) {
+  const pageUrl = new URL(page.split("/").map(encodeURIComponent).join("/"), subBase).toString();
+  const res = await fetch(pageUrl);
+  check(`子路径下页面可访问：${page}`, res.status === 200, `HTTP ${res.status}`);
+  const html = await res.text();
+  for (const m of html.matchAll(/(?:href|src)="([^"]+)"/g)) {
+    const ref = m[1];
+    if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(ref) || ref.startsWith("#")) continue;
+    const target = new URL(ref, pageUrl);
+    const r = await fetch(target);
+    check(`  子路径下引用可取：${ref}`, r.status === 200, `HTTP ${r.status} ${target.pathname}`);
+  }
+}
+sub.close();
+served.close();
+
+console.log("== 10. 没有域名时必须拒绝导出 ==");
 let refused = false;
 let stderr = "";
 try {
